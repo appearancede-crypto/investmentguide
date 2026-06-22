@@ -1,0 +1,13 @@
+# Render Blueprint — deploy with one click via "New + → Blueprint" after pushing
+# this repo to GitHub (https://render.com). Render auto-detects the Dockerfile,
+# injects $PORT, and runs the health check.
+services:
+  - type: web
+    name: signal-engine
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PAGE_CACHE_TTL
+        value: "45"

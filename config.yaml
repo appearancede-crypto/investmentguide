@@ -1,0 +1,111 @@
+# =============================================================================
+# Crypto Investment Analysis Tool — configuration
+# Everything the tool does is driven from this file. No code edits needed to
+# change coins, timeframes, indicator periods, signal weights or backtest rules.
+# =============================================================================
+
+data:
+  # Binance public market-data hosts (no API key required for klines).
+  # The client tries these in order; data-api.binance.vision is the public
+  # data mirror that is reachable in some regions where the main host is not.
+  base_urls:
+    - https://api.binance.com
+    - https://data-api.binance.vision
+  # Your watchlist — the page shows exactly these. Add/remove any Binance USDT
+  # pair here, then re-ingest. Unreachable symbols are skipped, not fatal.
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+    - BNBUSDT
+    - SOLUSDT
+    - XRPUSDT
+    - ADAUSDT
+    - DOGEUSDT
+    - AVAXUSDT
+    - LINKUSDT
+    - LTCUSDT
+    - TRXUSDT
+    - DOTUSDT
+    - BCHUSDT
+    - NEARUSDT
+    - UNIUSDT
+    - ATOMUSDT
+    - ETCUSDT
+    - XLMUSDT
+    - FILUSDT
+    - APTUSDT
+    - ARBUSDT
+    - OPUSDT
+    - INJUSDT
+    - SUIUSDT
+  interval: 1h            # 1m, 5m, 15m, 1h, 4h, 1d, 1w
+  # Total candles per symbol. Values > 1000 page backwards through history to
+  # assemble the widest window possible (5000 x 1h ~ 7 months; raise for more
+  # regimes to learn from — fetch just takes a little longer).
+  history_limit: 5000
+  db_path: data/market.db
+  request_timeout: 15
+
+indicators:
+  ema_fast: 12
+  ema_slow: 26
+  macd_signal: 9
+  rsi_period: 14
+  bb_period: 20
+  bb_std: 2.0
+  atr_period: 14
+  sma_short: 50
+  sma_long: 200
+  roc_period: 10
+  obv_smooth: 5
+  vol_ma_period: 20
+  curvature_smooth: 10    # EMA span used to smooth price before differentiating
+
+signals:
+  # Relative importance of each contributing rule. The composite score is a
+  # weighted average of the per-rule votes (each in [-1, +1]), rescaled to
+  # [-100, +100]. Tune these to express your strategy bias.
+  weights:
+    trend: 1.0            # trend-following  (EMA/SMA alignment)
+    macd: 1.0            # trend-following  (MACD histogram + crossover)
+    rsi: 0.8             # mean-reversion   (oversold = bullish)
+    bollinger: 0.8       # mean-reversion   (below lower band = bullish)
+    curvature: 1.2       # the headline feature: velocity + acceleration of price
+    momentum: 0.7        # trend-following  (rate of change)
+    volume: 0.5          # confirmation     (OBV slope)
+  buy_threshold: 35
+  strong_buy_threshold: 65
+  sell_threshold: -35
+  strong_sell_threshold: -65
+
+backtest:
+  fee_pct: 0.10           # taker fee per side, percent
+  slippage_pct: 0.05      # assumed slippage per side, percent
+  entry_score: 40         # go long when composite >= this
+  exit_score: 0           # exit to cash when composite <= this
+  stop_loss_pct: 8.0      # hard stop from entry (0 disables)
+  take_profit_pct: 0.0    # take profit from entry (0 disables)
+
+paper:
+  # Fictional-money portfolio that allocates virtual capital across the coins
+  # according to the signals, rebalanced each bar (long-only, next-bar fills).
+  starting_cash: 10000
+  fee_pct: 0.10
+  min_score: 40           # only allocate to coins with composite >= this
+  max_weight_per_coin: 0.34
+  rebalance_band: 0.05    # skip a trade unless target vs current weight differs by > this
+  learn:
+    # "Learn from the money made or lost": tilt the signal weights toward the
+    # rules whose recent votes best predicted realised returns. Walk-forward,
+    # no look-ahead. A feedback loop — NOT a guarantee of improvement.
+    window: 200           # trailing bars used to score each rule's profitability
+    retrain_every: 50     # bars between weight updates
+    lr: 0.25              # EMA step toward the freshly-scored target weights (0..1)
+    min_obs: 100          # don't update weights on fewer live bars than this (thin sample)
+
+exits:
+  # Exit-point analysis: where to take profit / cut losses on a held position.
+  atr_mult_stop: 3.0      # trailing (chandelier) & ATR stop distance, in ATRs
+  atr_mult_target: 6.0    # take-profit distance in ATRs (~2:1 reward:risk)
+  lookback: 22            # bars for the chandelier high & swing low/high
+  rsi_overbought: 70      # RSI above this flags 'consider trimming'

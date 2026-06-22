@@ -1,0 +1,19 @@
+# Keep the image small and the build reproducible (data is ingested at runtime).
+.git/
+.github/
+.claude/
+data/
+tests/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.html
+dashboard.log
+signal_web.log
+requirements.txt
+run_dashboard.ps1
+DEPLOY.md
+README.md

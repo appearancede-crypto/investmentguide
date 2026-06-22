@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "signal-engine",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "crypto_tool.cli", "web", "--serve", "--no-open", "--port", "8788"],
+      "port": 8788
+    }
+  ]
+}

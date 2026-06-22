@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# Runtime data (the candle DB + its WAL/SHM sidecars, generated pages) — never committed
+data/
+.venv/
+venv/
+.streamlit/secrets.toml
+*.log
