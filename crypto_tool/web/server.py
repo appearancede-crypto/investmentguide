@@ -14,6 +14,7 @@ Read-only and analysis-only. It never trades. Not financial advice.
 """
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import re
@@ -63,12 +64,16 @@ def _get_page(config_path) -> bytes:
         with _page_lock:
             _page["ts"] = time.time()
             _page["body"] = body
+            # Pre-compress once per rebuild: a 60-coin page is ~10 MB raw but
+            # JSON gzips ~6x, and every visitor benefits.
+            _page["gz"] = gzip.compress(body, 6)
         return body
 
 
 def _bust_page_cache():
     with _page_lock:
         _page["body"] = None
+        _page["gz"] = None
 
 
 def _get_coin(config_path, symbol: str) -> bytes:
@@ -112,7 +117,13 @@ def _make_handler(config_path: Optional[str]):
                 self._send(404, b"Not found", "text/plain")
                 return
             try:
-                self._send(200, _get_page(config_path), "text/html; charset=utf-8")
+                body = _get_page(config_path)
+                gz = None
+                if self._gzip_ok():
+                    with _page_lock:
+                        if _page["body"] is body:
+                            gz = _page.get("gz")
+                self._send(200, gz or body, "text/html; charset=utf-8", gz=bool(gz))
             except Exception as exc:  # noqa: BLE001 — surface errors in the browser
                 self._send(500, f"Error building page: {exc}".encode("utf-8"), "text/plain")
 
@@ -124,9 +135,8 @@ def _make_handler(config_path: Optional[str]):
                     snap = database.load_scout(conn)
                 finally:
                     conn.close()
-                self._send(200, json.dumps({"ok": True, "scout": snap},
-                                           allow_nan=False).encode("utf-8"),
-                           "application/json")
+                self._send_json(json.dumps({"ok": True, "scout": snap},
+                                           allow_nan=False).encode("utf-8"))
             except Exception as exc:  # noqa: BLE001
                 self._send(200, json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"),
                            "application/json")
@@ -137,14 +147,25 @@ def _make_handler(config_path: Optional[str]):
                 self._send(200, b'{"ok":false,"error":"invalid symbol"}', "application/json")
                 return
             try:
-                self._send(200, _get_coin(config_path, symbol), "application/json")
+                self._send_json(_get_coin(config_path, symbol))
             except Exception as exc:  # noqa: BLE001
                 self._send(200, json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"),
                            "application/json")
 
-        def _send(self, code, body, ctype):
+        def _gzip_ok(self):
+            return "gzip" in (self.headers.get("Accept-Encoding") or "")
+
+        def _send_json(self, body):
+            if self._gzip_ok() and len(body) > 2048:
+                self._send(200, gzip.compress(body, 6), "application/json", gz=True)
+            else:
+                self._send(200, body, "application/json")
+
+        def _send(self, code, body, ctype, gz=False):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
+            if gz:
+                self.send_header("Content-Encoding", "gzip")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

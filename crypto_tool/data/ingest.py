@@ -26,17 +26,54 @@ def ingest_symbol(
                 "error": f"{type(exc).__name__}: {exc}"}
 
 
-def ingest_all(conn, config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Ingest every configured symbol. Never raises — collects per-symbol status."""
+def resolve_symbols(config: Dict[str, Any], *, pairs=None, tickers=None) -> List[str]:
+    """The tracked universe, synchronized with the exchange.
+
+    Always contains the explicit ``data.symbols`` watchlist. When
+    ``data.symbols_auto`` > 0, the list is topped up with the most-traded real
+    USDT pairs on Binance (same stablecoin/leveraged-token/volume filters as
+    the scout) until it holds max(symbols_auto, len(explicit)) coins — so your
+    hand-picked coins are never dropped, and the rest tracks what the market
+    actually trades. Falls back to the explicit list when offline."""
     d = config["data"]
+    explicit = [s.upper() for s in d["symbols"]]
+    n_auto = int(d.get("symbols_auto", 0) or 0)
+    if n_auto <= 0:
+        return explicit
+    from ..analysis import scout  # lazy: reuse its market filters, avoid an import cycle
+    try:
+        if pairs is None:
+            pairs = binance_client.fetch_usdt_pairs(d["base_urls"], d["request_timeout"])
+        if tickers is None:
+            tickers = binance_client.fetch_all_24h_tickers(d["base_urls"], d["request_timeout"])
+        ranked = scout.eligible_pairs(
+            pairs, tickers,
+            min_quote_volume=float(config["scout"]["min_quote_volume_usd"]),
+            max_symbols=0)
+    except Exception:  # noqa: BLE001 — sync is best-effort; the watchlist still works
+        return explicit
+    if not ranked:
+        return explicit
+    merged = list(dict.fromkeys(explicit + [r["symbol"] for r in ranked]))
+    return merged[: max(n_auto, len(explicit))]
+
+
+def ingest_all(conn, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Ingest the synchronized symbol universe. Never raises — collects
+    per-symbol status, and records the tracked list for the page builder."""
+    d = config["data"]
+    symbols = resolve_symbols(config)
     results = []
-    for symbol in d["symbols"]:
+    for symbol in symbols:
         results.append(
             ingest_symbol(
                 conn, symbol, d["interval"], d["history_limit"],
                 d["base_urls"], d["request_timeout"],
             )
         )
+    ok = [r["symbol"] for r in results if r["ok"]]
+    if ok:
+        database.save_kv(conn, "tracked_symbols", ok)
     return results
 
 

@@ -10,4 +10,4 @@ services:
     autoDeploy: true
     envVars:
       - key: PAGE_CACHE_TTL
-        value: "45"
+        value: "180"   # a 60-coin page takes ~20-30s to rebuild; don't do it every request

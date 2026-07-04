@@ -19,6 +19,7 @@ DEFAULTS: Dict[str, Any] = {
     "data": {
         "base_urls": ["https://api.binance.com", "https://data-api.binance.vision"],
         "symbols": ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"],
+        "symbols_auto": 60,  # top up the watchlist to N coins from Binance's most-traded (0 = off)
         "interval": "1h",
         "history_limit": 5000,
         "db_path": "data/market.db",
@@ -77,7 +78,8 @@ DEFAULTS: Dict[str, Any] = {
         "rsi_overbought": 70,
     },
     "web": {
-        "history": 1000,    # candles per coin embedded in the Signal Engine page
+        "history": 720,     # candles per coin embedded in the page (30 days of 1h;
+                            # keeps a 60-coin page lean — forecasts still use full history)
         "theme": "carbon",  # carbon | bone | blueprint | oxide
         "port": 8787,
         "eval_horizon": 24,  # bars ahead used to score a directional call (24 x 1h = 1 day)

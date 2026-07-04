@@ -103,6 +103,11 @@ CREATE TABLE IF NOT EXISTS scout_snapshot (
     snapshot   TEXT,
     created_ms INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS kv (
+    k TEXT PRIMARY KEY,
+    v TEXT
+);
 """
 
 
@@ -241,6 +246,27 @@ def latest_signals(conn: sqlite3.Connection, interval: Optional[str] = None) -> 
         "GROUP BY symbol, interval" + join_tail
     )
     return pd.read_sql_query(query, conn)
+
+
+# --------------------------------------------------------------------------- #
+# Small key-value store (e.g. the currently-tracked symbol list)
+# --------------------------------------------------------------------------- #
+def save_kv(conn: sqlite3.Connection, key: str, value: Any) -> None:
+    conn.execute(
+        "INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+        (key, json.dumps(value, allow_nan=False)),
+    )
+    conn.commit()
+
+
+def load_kv(conn: sqlite3.Connection, key: str) -> Any:
+    row = conn.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
+    if row is None or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except (ValueError, TypeError):
+        return None
 
 
 # --------------------------------------------------------------------------- #

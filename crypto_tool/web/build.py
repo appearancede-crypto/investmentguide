@@ -280,9 +280,16 @@ def build_payload(conn, cfg: Dict[str, Any], history: int | None = None) -> Dict
     band = float(web.get("eval_band", 1.0))
     min_bars = max(cfg["indicators"]["ema_slow"], cfg["indicators"]["bb_period"]) + 5
 
+    # Prefer the tracked list recorded at ingest time (the synchronized
+    # universe); fall back to whatever the DB holds. This keeps the page from
+    # growing without bound as the auto-picked list rotates over the weeks.
+    tracked = database.load_kv(conn, "tracked_symbols")
+    available = database.list_symbols(conn, interval)
+    symbols = [s for s in tracked if s in set(available)] if tracked else available
+
     coins: Dict[str, Any] = {}
     names: List[str] = []
-    for sym in database.list_symbols(conn, interval):
+    for sym in symbols:
         df = database.load_ohlcv(conn, sym, interval)
         if len(df) < min_bars:
             continue

@@ -38,6 +38,11 @@ data:
     - OPUSDT
     - INJUSDT
     - SUIUSDT
+  # Synchronize with the exchange: top the watchlist up to this many coins
+  # using Binance's most-traded USDT pairs (stablecoins, leveraged tokens and
+  # thin pairs filtered out — same rules as the scout). Your explicit list
+  # above is always kept; auto-picked coins fill the rest. 0 = off.
+  symbols_auto: 60
   interval: 1h            # 1m, 5m, 15m, 1h, 4h, 1d, 1w
   # Total candles per symbol. Values > 1000 page backwards through history to
   # assemble the widest window possible (5000 x 1h ~ 7 months; raise for more
@@ -115,6 +120,11 @@ scout:
   pause_ms: 60                # politeness delay between requests
 
 web:
+  # Candles per coin embedded in the page. 720 x 1h = 30 days of charts; the
+  # outlook cone and its calibration always use the FULL stored history, so a
+  # smaller embed only trims the visible chart window, not forecast quality.
+  history: 720
+
   # Track-record stability: a directional call only counts once the flag has
   # HELD for eval_persist bars (single-bar blips are noise, not calls), and
   # calls where confidence >= eval_conf_gate AND the trend regime agrees are

@@ -34,8 +34,9 @@ def _conn(cfg: Dict[str, Any]):
 
 
 def cmd_ingest(cfg, args, conn) -> int:
-    print(f"Ingesting {len(cfg['data']['symbols'])} symbols "
-          f"[{cfg['data']['interval']}] from Binance ...")
+    n_auto = int(cfg["data"].get("symbols_auto", 0) or 0)
+    sync = f" (watchlist synced to Binance's top {n_auto} by turnover)" if n_auto else ""
+    print(f"Ingesting [{cfg['data']['interval']}] from Binance{sync} ...")
     results = ingest.ingest_all(conn, cfg)
     ok = [r for r in results if r["ok"]]
     for r in results:

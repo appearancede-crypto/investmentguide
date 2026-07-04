@@ -26,6 +26,7 @@ Binance public API.
 | Capability | How |
 |---|---|
 | **Live data → active DB** | Pulls OHLCV candles from Binance's public API (no key, no trading access) into a local SQLite database, idempotently. |
+| **Synchronized watchlist** | `data.symbols_auto: 60` tops the tracked list up to the 60 most-traded real USDT pairs on Binance at every ingest — your hand-picked coins are always kept, stablecoins/leveraged tokens are filtered out, and the page follows what the market actually trades instead of a frozen list. |
 | **Curvature analysis** | Smooths price, then reads its 1st derivative (velocity / *change*) and 2nd derivative (*curvature* / acceleration) to spot bends like decelerating sell-offs (bottoming) before they show in price. |
 | **Technical indicators** | RSI, MACD, Bollinger Bands, SMA/EMA trend, ATR, OBV, momentum — all causal (no look-ahead). |
 | **Signal engine** | Blends the rules into one explainable composite score (−100…+100) plus a separate **confidence** based on rule agreement, signal strength, volume and data depth. Every signal is broken down rule-by-rule. |
@@ -167,6 +168,13 @@ serves 1000 per request, so the client **pages backward** to assemble far more �
 the default 5000 (~7 months of hourly bars) gives the engine, backtester and learner
 several market regimes to work from. Raise it for an even wider window (the fetch
 just takes a little longer).
+
+**Width across coins** comes from `data.symbols_auto`: every `ingest` re-ranks
+Binance's USDT pairs by 24h turnover (same real-market filters as the scout)
+and tops the tracked list up to N coins. The ingested set is recorded, so the
+page always shows exactly the current tracked universe — it doesn't grow
+without bound as the rankings rotate. The served page is gzip-compressed, so
+the bigger universe still loads fast.
 
 ## Paper trading & "learning from the money made or lost"
 

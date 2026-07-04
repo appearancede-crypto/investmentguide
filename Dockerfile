@@ -5,7 +5,7 @@ FROM python:3.13-slim
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PAGE_CACHE_TTL=45
+    PAGE_CACHE_TTL=180
 
 # Install only the web server's dependencies (no Streamlit/Plotly/matplotlib).
 COPY requirements-web.txt .
