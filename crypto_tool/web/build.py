@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from ..analysis import discovery, signals
+from ..analysis import discovery, forecast, signals
 from ..data import binance_client, coingecko, database
 
 # Display metadata mirroring the design.
@@ -167,7 +167,12 @@ def _coin_dict(df: pd.DataFrame, cfg: Dict[str, Any], sym: str,
     e = sig["enriched"]
     tail = e.tail(history).reset_index(drop=True)
     ev = signal_eval(tail, horizon, band)
+    try:
+        fc = forecast.project(e, cfg)   # full history -> best analogue pool
+    except Exception:  # noqa: BLE001 — the page must never die on the outlook
+        fc = None
     return {
+        "forecast": fc,
         "name": FULL_NAMES.get(sym.upper(), sym.replace("USDT", "")),
         "t": [int(x) for x in tail["open_time"].tolist()],
         "o": _arr(tail["open"]), "h": _arr(tail["high"]), "l": _arr(tail["low"]),

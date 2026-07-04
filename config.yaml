@@ -103,6 +103,19 @@ paper:
     lr: 0.25              # EMA step toward the freshly-scored target weights (0..1)
     min_obs: 100          # don't update weights on fewer live bars than this (thin sample)
 
+web:
+  # The Outlook cone: "when this coin looked like it does right now, what
+  # happened next?" — K-nearest-neighbour analogues over this coin's own past,
+  # projected forward as quantile bands. A base rate, not a prediction.
+  forecast:
+    bars: 48              # how far forward the cone is drawn (48 x 1h = 2 days)
+    checkpoints: [12, 24, 48]   # "chance higher" stats at these steps ahead
+    min_candidates: 60    # refuse to draw a cone on thinner history than this
+    k_frac: 0.08          # analogues used = this fraction of candidate bars ...
+    k_min: 25             # ... clamped between k_min and k_max
+    k_max: 150
+    calib_samples: 60     # past bars replayed for the honesty (coverage) check
+
 exits:
   # Exit-point analysis: where to take profit / cut losses on a held position.
   atr_mult_stop: 3.0      # trailing (chandelier) & ATR stop distance, in ATRs

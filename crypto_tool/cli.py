@@ -150,6 +150,52 @@ def cmd_exits(cfg, args, conn) -> int:
     return 0
 
 
+def cmd_outlook(cfg, args, conn) -> int:
+    from .analysis import forecast
+    interval = cfg["data"]["interval"]
+    symbols = [args.symbol.upper()] if args.symbol else database.list_symbols(conn, interval)
+    if not symbols:
+        print("No data yet. Run `ingest` or `seed-demo` first.")
+        return 1
+    results = []
+    for symbol in symbols:
+        df = database.load_ohlcv(conn, symbol, interval)
+        if df.empty:
+            if args.symbol:
+                print(f"No data for {symbol}. Run `ingest` or `seed-demo` first.")
+                return 1
+            continue
+        results.append((symbol, forecast.project(signals.enrich(df, cfg), cfg)))
+    if args.json:
+        print(json.dumps(dict(results), indent=2))
+        return 0
+    for symbol, fc in results:
+        print(f"\nOutlook — {symbol}")
+        if fc is None:
+            print("  Not enough comparable history to build an outlook.")
+            continue
+        print(f"  Based on {fc['analogues']} look-alike past moments "
+              f"(pool of {fc['candidates']}) · reliability {fc['quality']}")
+        for cp in fc["checkpoints"]:
+            if cp["hours"] is None:
+                when = f"+{cp['bars']} bars"
+            elif cp["hours"] < 48:
+                when = f"+{round(cp['hours'])}h"
+            else:
+                when = f"+{round(cp['hours'] / 24)}d"
+            print(f"  {when:>6}: higher in {cp['prob_up']:.0f}% of them · "
+                  f"typical {cp['median_pct']:+.2f}% · "
+                  f"middle 80% {cp['p10_pct']:+.1f}% … {cp['p90_pct']:+.1f}%")
+        cal = fc["calibration"]
+        if cal:
+            print(f"  Reality check: over {cal['samples']} replayed past moments, the 80% band "
+                  f"contained what actually happened {cal['coverage_pct']:.0f}% of the time "
+                  f"(target {cal['target_pct']}%).")
+        print(f"  {fc['summary']}")
+    print(f"\n{DISCLAIMER}")
+    return 0
+
+
 def cmd_discover(cfg, args, conn) -> int:
     d, disc = cfg["data"], cfg["discovery"]
     print("Fetching the broad market from CoinGecko ...")
@@ -385,6 +431,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Candles per coin for boot/background ingest (smaller = faster cold start)")
     ex = sub.add_parser("exits", help="Exit guidance (trailing stop, take-profit, action)")
     ex.add_argument("symbol", nargs="?", default=None, help="One symbol, or omit for all")
+    ol = sub.add_parser("outlook",
+                        help="What happened after similar past moments (a tally of the past, not a forecast)")
+    ol.add_argument("symbol", nargs="?", default=None, help="One symbol, or omit for all")
+    ol.add_argument("--json", action="store_true")
     dc = sub.add_parser("discover", help="Risk-flagged market movers from CoinGecko")
     dc.add_argument("--top", type=int, default=None)
     dc.add_argument("--pages", type=int, default=None, help="CoinGecko pages of 250 coins")
@@ -424,6 +474,7 @@ def main(argv=None) -> int:
         "coverage": cmd_coverage,
         "web": cmd_web,
         "exits": cmd_exits,
+        "outlook": cmd_outlook,
         "discover": cmd_discover,
         "paper-open": cmd_paper_open,
         "paper-run": cmd_paper_run,

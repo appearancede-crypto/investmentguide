@@ -36,7 +36,7 @@ def _seed(conn, cfg, n=300):
 def test_build_payload_shape(tmp_path, cfg):
     conn = database.connect(str(tmp_path / "w.db"))
     try:
-        _seed(conn, cfg)
+        _seed(conn, cfg, n=900)   # enough for a de-clustered outlook, too
         payload = build.build_payload(conn, cfg, history=200)
         assert payload["markets"] == len(cfg["data"]["symbols"])
         assert payload["interval"] == cfg["data"]["interval"]
@@ -45,8 +45,11 @@ def test_build_payload_shape(tmp_path, cfg):
         c = payload["coins"][sym]
         for k in ["o", "h", "l", "c", "emaF", "emaS", "bbUp", "bbLo", "rsi", "comp",
                   "velZ", "accZ", "flag", "t", "latest", "rationale",
-                  "call", "outcome", "fwd", "eval"]:
+                  "call", "outcome", "fwd", "eval", "forecast"]:
             assert k in c, k
+        fc = c["forecast"]
+        assert fc is not None, "900 bars should be enough history for an outlook"
+        assert set(["bands", "checkpoints", "summary", "quality"]).issubset(fc)
         assert set(["calls", "hits", "misses", "accuracy", "horizon"]).issubset(c["eval"])
         assert len(c["c"]) == 200
         assert len(c["rationale"]) == 7

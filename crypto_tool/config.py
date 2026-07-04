@@ -82,6 +82,15 @@ DEFAULTS: Dict[str, Any] = {
         "port": 8787,
         "eval_horizon": 24,  # bars ahead used to score a directional call (24 x 1h = 1 day)
         "eval_band": 1.0,    # a move must clear +/- this % to count as right or wrong
+        "forecast": {
+            "bars": 48,             # how far forward the outlook cone is projected
+            "checkpoints": [12, 24, 48],  # stats reported at these steps ahead
+            "min_candidates": 60,   # refuse to project on thinner history than this
+            "k_frac": 0.08,         # analogues = this fraction of candidate bars …
+            "k_min": 25,            # … clamped between k_min and k_max
+            "k_max": 150,
+            "calib_samples": 60,    # past bars replayed for the honesty (coverage) check
+        },
     },
     "discovery": {
         "pages": 2,             # CoinGecko pages of 250 -> top ~500 coins by market cap

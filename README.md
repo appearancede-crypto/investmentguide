@@ -29,6 +29,9 @@ Binance public API.
 | **Curvature analysis** | Smooths price, then reads its 1st derivative (velocity / *change*) and 2nd derivative (*curvature* / acceleration) to spot bends like decelerating sell-offs (bottoming) before they show in price. |
 | **Technical indicators** | RSI, MACD, Bollinger Bands, SMA/EMA trend, ATR, OBV, momentum — all causal (no look-ahead). |
 | **Signal engine** | Blends the rules into one explainable composite score (−100…+100) plus a separate **confidence** based on rule agreement, signal strength, volume and data depth. Every signal is broken down rule-by-rule. |
+| **The Outlook (projection cone)** | For every coin: finds the K past moments that looked most like *right now* (similar score, trend, curvature, stretch) and draws where price actually went afterwards — a quantile fan projected from the current price, with "chance higher" stats at 12h/24h/48h, a plain-English summary, and a **calibration check** that replays the method on the coin's own past and reports how often reality stayed inside the band. A base rate, not a prophecy — and it says so. |
+| **Test money (web)** | Type in a pretend amount, pick "follow the signals" or "just buy & hold", one coin or all, rewind a week/month/3 months — and see in plain dollars what you'd have, what the other plan would have given, the fees, every trade, and the worst slump you'd have had to sit through. |
+| **Simple mode** | A header toggle (on by default) that adds jargon-free explainer strips to every view, written for someone who has never invested. |
 | **Opportunity scanner** | Ranks all tracked coins so the strongest setups float to the top. |
 | **Honest backtester** | Replays the engine over history with realistic fees and **next-bar fills (no look-ahead)**, benchmarked against buy-&-hold. |
 | **Exit points** | For any coin you hold: a trailing **chandelier stop**, an ATR **take-profit** target, nearest support/resistance, reward:risk, and a clear **EXIT / TRIM / HOLD** call with reasons. |
@@ -63,6 +66,7 @@ python -m crypto_tool.cli seed-demo [--bars N]   # offline synthetic data
 python -m crypto_tool.cli scan [--json]     # ranked latest-signal table
 python -m crypto_tool.cli backtest BTCUSDT [--json]
 python -m crypto_tool.cli exits [SYMBOL]    # exit guidance (all coins, or one)
+python -m crypto_tool.cli outlook [SYMBOL]  # what happened after similar past moments
 python -m crypto_tool.cli coverage          # what's stored in the DB
 
 # Paper trading with fictional money
@@ -71,6 +75,53 @@ python -m crypto_tool.cli paper-run                         # simulate it over y
 python -m crypto_tool.cli paper-status                      # equity, P&L, holdings, learned weights
 python -m crypto_tool.cli paper-compare                     # learned vs static, side by side
 ```
+
+## The Outlook — "what could happen next", honestly
+
+"Predicting" a chart is impossible; what *is* possible is a humbler, useful
+question: **when this coin looked like it does right now, what happened next?**
+
+Every bar of history is described by a small feature vector (signal score,
+velocity + acceleration of smoothed price, RSI, Bollinger %B). The engine finds
+the K most similar past moments, collects the price paths that actually
+followed each one, and shows their distribution:
+
+- a **projection cone** on the price chart beyond the NOW line — dashed median,
+  a darker band holding half the outcomes, a lighter band holding 80%;
+- **checkpoint stats** — "in 62% of similar past moments, price was higher a
+  day later; typical move +0.8%";
+- a **reality check** — the same method is replayed at past moments whose
+  outcome windows do **not overlap** (so the sample count is an honest count of
+  independent trials), and the page reports how often the real outcome landed
+  inside the 80% band (target: 80%). If the cone has been too tight or too
+  loose on this coin, it says so and downgrades its own comparison-quality
+  tier.
+
+Two design choices keep it honest: analogues are **de-clustered** (a minimum
+time separation is enforced, so "150 similar moments" means 150 distinct
+episodes, not the same rally sampled 150 times), and an analogue only
+qualifies if its entire forward window was already observed — strictly causal.
+Configured under `web.forecast` in `config.yaml`. It is a **tally of the past,
+not a forecast of the future** — the page repeats this wherever the cone
+appears.
+
+## Test money — "what would I have made?"
+
+The web UI's **TEST MONEY** tab answers the question everyone actually asks.
+Type an amount ($100 / $1,000 / anything), choose a plan (**follow the
+signals** with the default strategy rules, or **just buy & hold**), choose
+where (one coin, or split evenly across all tracked coins) and how far to
+rewind (week / month / 3 months / all history). The page replays real candles
+with real fees and next-bar semantics and shows:
+
+- the headline: **"YOU WOULD HAVE $X"** (+/− in dollars and %),
+- what the plan you *didn't* pick would have given, and doing nothing,
+- fees paid, every trade in dollars, and the **worst slump** — the
+  peak-to-trough drop you'd have had to sit through without flinching,
+- coin-by-coin attribution when spread across the basket.
+
+It is pretend money on real history — flattering by construction (perfect
+discipline is assumed), and the page says exactly that.
 
 ## Finding the right exit points
 
