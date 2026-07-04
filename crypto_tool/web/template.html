@@ -98,6 +98,7 @@ let state = { view:'scanner', selected:(DATA.names[0]||null), rangeKey:'7D',
               theme: (DATA.theme||'carbon'), bt:{...DATA.backtestDefaults},
               discoverSort: (DATA.discover&&DATA.discover.sort)||'momentum',
               simple:true,
+              folds:{ picker:false, chart:true, outlook:true, why:false },
               scout:{ filter:'all', risk:'any', sort:'score' },
               inv:{ amount:1000, mode:'signals', scope:'coin', period:'1M' } };
 let win = { count:168, endOffset:0 };
@@ -353,16 +354,52 @@ function renderScanner(){ const rows=scanRows();
 
 function coinChips(sel, justifyEnd){ return DATA.names.map(s=>{ const on=s===sel; return '<button data-chip="'+s+'" style="background:none;border:none;border-bottom:'+(on?'2px solid var(--accent)':'2px solid transparent')+';color:'+(on?'var(--ink)':'var(--dim)')+';font-family:inherit;font-size:13px;font-weight:'+(on?600:500)+';letter-spacing:.02em;padding:6px 2px;cursor:pointer">'+s.replace('USDT','')+'</button>'; }).join(''); }
 
+// ---------- unfolding sections (Coin Detail) ----------
+function fold(key,title,hint,inner){ const open=!!state.folds[key];
+  return '<div style="position:relative;border:1px solid var(--line);background:var(--panel);margin-top:14px">'+bracket()
+    +'<button data-fold="'+key+'" style="all:unset;box-sizing:border-box;display:flex;align-items:center;gap:14px;width:100%;padding:15px 20px;cursor:pointer">'
+    +'<span style="color:var(--accent);font-size:11px;font-weight:700;width:12px;flex:none">'+(open?'▾':'▸')+'</span>'
+    +'<span style="font-size:11px;font-weight:600;letter-spacing:.16em;color:var(--ink)">'+title+'</span>'
+    +'<span style="font-size:10.5px;color:var(--dim);letter-spacing:.03em;margin-left:auto;text-align:right">'+hint+'</span></button>'
+    +(open?'<div style="padding:2px 20px 18px">'+inner+'</div>':'')
+    +'</div>'; }
+
+// Coin picker: your tracked coins + a search over the ENTIRE liquid exchange
+// (the universe indexed by the last scout sweep — deep-dives load live).
+function pickListHTML(sel,qs){ const q=(qs||'').trim().toUpperCase();
+  const uni=(DATA.scout&&DATA.scout.universe)||[];
+  const match=(sym,name)=>!q||sym.indexOf(q)>=0||String(name||'').toUpperCase().indexOf(q)>=0;
+  const chip=(s,extra,on)=>'<button data-pick="'+esc(s)+'" style="background:'+(on?'var(--panel2)':'none')+';border:1px solid '+(on?'var(--accent)':'var(--line)')+';color:'+(on?'var(--ink)':'var(--dim)')+';font-family:inherit;font-size:11.5px;font-weight:600;letter-spacing:.04em;padding:6px 10px;cursor:pointer;margin:0 6px 6px 0">'+esc(s.replace('USDT',''))+(extra||'')+'</button>';
+  let h='<div style="font-size:10px;letter-spacing:.16em;color:var(--dim);margin:6px 0 8px">YOUR TRACKED COINS</div><div>';
+  const tr=DATA.names.filter(s=>match(s, coin(s)&&coin(s).name));
+  h+=(tr.map(s=>chip(s,'',s===sel)).join('')||'<span style="font-size:12px;color:var(--dim)">no tracked coin matches</span>')+'</div>';
+  const tracked=new Set(DATA.names);
+  const rest=uni.filter(u=>u&&u.s&&!tracked.has(u.s)&&match(u.s,''));
+  h+='<div style="font-size:10px;letter-spacing:.16em;color:var(--dim);margin:14px 0 8px">THE REST OF THE EXCHANGE · '+rest.length+' MORE LIQUID PAIRS'+(q?' MATCHING':'')+'</div><div>';
+  const cap=q?rest.length:40;
+  h+=(rest.slice(0,cap).map(u=>chip(u.s,(u.p!=null?' <span style="font-weight:500;letter-spacing:0;color:'+(u.p>=0?'var(--bull)':'var(--bear)')+'">'+sgn(u.p,1)+'%</span>':''),u.s===sel)).join('')
+     ||'<span style="font-size:12px;color:var(--dim)">'+(uni.length?'no match — pairs below the liquidity floor are not listed (a signal on an untradeable coin is a trap)':'run the scout once (or serve with --scout-min) to index the whole exchange here')+'</span>')+'</div>';
+  if(!q&&rest.length>cap) h+='<div style="font-size:11px;color:var(--dim);margin-top:4px">+'+(rest.length-cap)+' more — type above to search them all</div>';
+  h+='<div style="font-size:10.5px;color:var(--dim);margin-top:10px">Exchange coins load their full charts live when clicked (needs the served app, not the saved file).</div>';
+  return h; }
+function pickerInner(sel){ const uni=(DATA.scout&&DATA.scout.universe)||[];
+  return '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:8px 0 12px">'
+    +'<input id="coinSearch" type="text" placeholder="Search any coin — e.g. PEPE, TAO, TRUMP…" style="flex:1;min-width:220px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:13px;padding:9px 12px;outline:none">'
+    +'<span style="font-size:10.5px;color:var(--dim)">'+DATA.names.length+' tracked · '+uni.length+' liquid pairs indexed</span></div>'
+    +'<div id="pickList">'+pickListHTML(sel,'')+'</div>'; }
+function wirePickList(){ MAIN.querySelectorAll('[data-pick]').forEach(el=>el.addEventListener('click',()=>{ openCoin(el.getAttribute('data-pick')); })); }
+
 function hoursLabel(cp){ if(cp.hours==null) return cp.bars+' BARS'; return cp.hours<48?('+'+Math.round(cp.hours)+' HOURS'):('+'+Math.round(cp.hours/24)+' DAYS'); }
-function outlookHTML(co){ const f=co.forecast;
-  let h='<div style="margin-top:36px"><div style="display:flex;align-items:center;gap:14px;margin-bottom:14px"><div style="font-size:30px;font-weight:500;letter-spacing:-.025em">What could happen next</div><div style="flex:1;height:1px;background:var(--line)"></div>'+(f?'<div style="font-size:11px;letter-spacing:.14em;color:var(--dim)">FROM '+f.analogues+' SIMILAR PAST MOMENTS</div>':'<div style="font-size:11px;letter-spacing:.14em;color:var(--dim)">NO OUTLOOK YET</div>')+'</div>';
+function outlookFold(co){ const f=co.forecast;
+  const hint=f?('FROM '+f.analogues+' SIMILAR PAST MOMENTS · '+f.quality):'NO OUTLOOK YET';
+  let h='';
   if(!f){ h+=explain('When a coin has enough history, a shaded outlook cone appears on its chart showing where price went after moments that looked like the present one. This coin does not have enough fully-resolved look-alike moments yet, so no cone is drawn — silence is more honest than a made-up one.');
-    h+='<div style="padding:22px;border:1px solid var(--line);background:var(--panel);font-size:13px;color:var(--dim)">Not enough comparable history yet to build an outlook for this coin. It appears once there are enough fully-resolved look-alike moments to learn from.</div></div>';
-    return h; }
+    h+='<div style="padding:18px;border:1px solid var(--line);background:var(--panel2);font-size:13px;color:var(--dim)">Not enough comparable history yet to build an outlook for this coin. It appears once there are enough fully-resolved look-alike moments to learn from.</div>';
+    return {hint:hint, inner:h}; }
   h+=explain('The shaded cone on the price chart is <b>not a prediction</b> — it is a memory. The engine found the moments in this coin’s own history that looked most like right now (same kind of score, trend and momentum) and drew where price actually went afterwards. The dashed line is the middle outcome; the darker band holds half of them; the lighter band holds 80%. In those past moments, about 8 out of 10 outcomes landed inside a band like this one — but the future is under no obligation to do the same, and price can leave the cone entirely.');
   const cp24=f.checkpoints.find(c=>c.bars===24)||f.checkpoints[f.checkpoints.length-1]||f.checkpoints[0];
   const verdict=cp24?(cp24.prob_up>=60?['MOSTLY UP','var(--bull)']:cp24.prob_up<=40?['MOSTLY DOWN','var(--bear)']:['NO CLEAR LEAN','var(--dim)']):['—','var(--dim)'];
-  h+='<div style="position:relative;border:1px solid var(--line);background:var(--panel)">'+bracket();
+  h+='<div style="position:relative;border:1px solid var(--line);background:var(--panel2)">';
   h+='<div style="display:flex;align-items:stretch;flex-wrap:wrap;border-bottom:1px solid var(--line)">'
     +'<div style="padding:18px 22px;border-right:1px solid var(--line);min-width:210px"><div style="font-size:10px;letter-spacing:.16em;color:var(--dim)">SIMILAR MOMENTS LEANED</div><div style="font-size:21px;font-weight:600;margin-top:8px;color:'+verdict[1]+'">'+verdict[0]+'</div><div style="font-size:11px;color:var(--dim);margin-top:5px">across '+f.analogues+' look-alike moments</div></div>';
   const calHz=(f.calibration&&f.calibration.horizons)||[];
@@ -383,12 +420,11 @@ function outlookHTML(co){ const f=co.forecast;
     +'<span>COMPARISON QUALITY <b style="color:'+qc+';letter-spacing:.08em">'+f.quality+'</b> <span style="opacity:.75">— depth of look-alike history and past band fit, not forecast accuracy</span></span>'
     +(cal?'<span>REALITY CHECK — replayed at '+cal.samples+' separate past moments, the 80% band at the '+calLab+' mark contained what actually happened <b style="color:var(--ink)">'+cal.coverage_pct.toFixed(0)+'%</b> of the time (target '+cal.target_pct+'%)</span>':'')
     +'<span style="margin-left:auto">a tally of what happened before · not a promise · not financial advice</span></div>';
-  h+='</div></div>';
-  return h; }
+  h+='</div>';
+  return {hint:hint, inner:h}; }
 
 function renderDetail(){ const sel=state.selected; const co=coin(sel); const L=co.latest; const ev=co.eval||{}; const evScored=(ev.hits||0)+(ev.misses||0);
   let h='<section><div style="font-size:10px;font-weight:500;letter-spacing:.2em;color:var(--dim);margin-bottom:16px">02 — COIN DETAIL · SHOWS ITS REASONING</div>';
-  h+='<div style="margin-bottom:24px;display:flex;flex-wrap:wrap;gap:20px;align-items:center">'+coinChips(sel)+'</div>';
   h+=explain('Each bar on the chart is one hour of trading (a “candle”): the thin line is the full range prices touched, the thick part is where the hour opened and closed. The two curved lines are moving averages — slow-motion versions of price that make the trend easier to see. <b>TRACK RECORD</b> is this engine grading its own homework: of the buy/sell calls it made on this coin, how many did the price actually follow. Blips that faded within '+DATA.evalPersist+' hours are not counted as calls at all, and the big number grades only the calls the engine itself was confident about — around 50% on everything is normal for one-day crypto moves (that is roughly a coin flip for everyone, including the professionals), which is why the fine print and the risk numbers matter more than the headline.'+(co.forecast?' The shaded cone to the right of NOW is the outlook — explained just below the chart.':''));
   h+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:30px;flex-wrap:wrap;margin-bottom:8px">'
     +'<div><div style="font-size:64px;font-weight:500;letter-spacing:-.04em;line-height:.84">'+esc(sel)+'</div><div style="font-size:14px;color:var(--dim);margin-top:8px">'+esc(co.name)+' · '+DATA.interval.toUpperCase()+' candles</div></div>'
@@ -410,9 +446,10 @@ function renderDetail(){ const sel=state.selected; const co=coin(sel); const L=c
       if(altBits.length){ sub2='<div style="font-size:10px;color:var(--dim);margin-top:3px">also graded — '+altBits.join(' · ')+'</div>'; }
       return '<div title="Calls only count once the flag has held '+DATA.evalPersist+' bars; the big number grades the calls the engine itself was confident about (confidence ≥ '+Math.round((DATA.evalConfGate||0)*100)+'% and trend agreement). Hindsight, not a forecast." style="padding:16px 22px;min-width:185px"><div style="font-size:10px;letter-spacing:.16em;color:var(--dim)">TRACK RECORD'+(headIsConf?' · CONFIDENT CALLS':'')+'</div><div style="font-size:22px;font-weight:600;margin-top:8px;color:'+col+'">'+(headAcc==null?'—':headAcc+'%')+'</div><div style="font-size:10.5px;color:var(--dim);margin-top:6px">'+sub+'</div>'+sub2+'</div>'; })()
     +'</div></div>';
-  // chart panel
+  // ---- unfolding sections ----
+  h+=fold('picker','COIN: '+esc(sel)+' — CHANGE / SEARCH','the entire exchange is in here — type to find any coin',pickerInner(sel));
   const rChip=(key,label)=>'<button data-range="'+key+'" style="background:none;border:1px solid '+(state.rangeKey===key?'var(--accent)':'var(--line)')+';color:'+(state.rangeKey===key?'var(--ink)':'var(--dim)')+';font-family:inherit;font-size:10px;font-weight:600;letter-spacing:.14em;padding:5px 11px;cursor:pointer">'+label+'</button>';
-  h+='<div style="position:relative;border:1px solid var(--line);background:var(--panel);padding:18px 20px 8px;margin-top:24px">'+bracket()
+  h+=fold('chart','PRICE CHART · CONE · SIGNAL STRIPS','zoom, pan, hover — the cone after NOW is the outlook',''
     +'<div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:10px;letter-spacing:.18em;color:var(--dim)">PRICE · EMA-12 / EMA-26 · BOLLINGER · SCORED CALLS · OUTLOOK CONE</div>'
     +'<div style="display:flex;align-items:center;gap:18px"><div style="display:flex;gap:6px">'+rChip('3D','3D')+rChip('7D','7D')+rChip('14D','14D')+rChip('ALL','ALL')+'</div>'
     +'<div style="display:flex;gap:14px;font-size:10px;letter-spacing:.1em;color:var(--dim)"><span style="display:flex;align-items:center;gap:6px"><span style="width:14px;height:2px;background:var(--accent);display:inline-block"></span>EMA-12</span><span style="display:flex;align-items:center;gap:6px"><span style="width:14px;height:2px;background:var(--dim);display:inline-block"></span>EMA-26</span></div></div></div>'
@@ -425,25 +462,32 @@ function renderDetail(){ const sel=state.selected; const co=coin(sel); const L=c
     +'<span style="opacity:.75">bright = confident call · faded = engine doubted it</span>'
     +'<span style="margin-left:auto">Calls must hold ≥'+DATA.evalPersist+' bars · scored on price '+DATA.evalHorizon+'h later vs a ±'+DATA.evalBand+'% band · hindsight, not a forecast</span></div>'
     +'<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><div style="font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:2px">COMPOSITE SCORE · BUY/SELL THRESHOLDS</div><canvas id="compC" style="width:100%;height:84px;display:block"></canvas></div>'
-    +'<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:2px">RSI-14 · 30 / 70 BANDS</div><canvas id="rsiC" style="width:100%;height:84px;display:block"></canvas></div><div><div style="font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:2px">CURVATURE · VELOCITY (z) / ACCELERATION (z)</div><canvas id="curvC" style="width:100%;height:84px;display:block"></canvas></div></div></div>';
+    +'<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:2px">RSI-14 · 30 / 70 BANDS</div><canvas id="rsiC" style="width:100%;height:84px;display:block"></canvas></div><div><div style="font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:2px">CURVATURE · VELOCITY (z) / ACCELERATION (z)</div><canvas id="curvC" style="width:100%;height:84px;display:block"></canvas></div></div>');
   // ---- the outlook: what could happen next, from prior observations ----
-  h+=outlookHTML(co);
+  const of=outlookFold(co);
+  h+=fold('outlook','WHAT COULD HAPPEN NEXT',of.hint,of.inner);
   // rationale
-  h+='<div style="margin-top:36px"><div style="display:flex;align-items:center;gap:14px;margin-bottom:18px"><div style="font-size:30px;font-weight:500;letter-spacing:-.025em">Why this signal</div><div style="flex:1;height:1px;background:var(--line)"></div><div style="font-size:11px;letter-spacing:.14em;color:var(--dim)">7 RULES · SORTED BY CONTRIBUTION</div></div>';
-  h+=explain('These are the seven judges behind the score, biggest influence first. Each one votes between −1 (looks like it may fall) and +1 (looks like it may rise), and the votes are weighted and added up. Nothing is hidden: if the score says BUY, this list is the complete reason why.');
+  let why=explain('These are the seven judges behind the score, biggest influence first. Each one votes between −1 (looks like it may fall) and +1 (looks like it may rise), and the votes are weighted and added up. Nothing is hidden: if the score says BUY, this list is the complete reason why.');
   co.rationale.forEach(r=>{ const v=isFinite(r.vote)?r.vote:0, contrib=isFinite(r.contrib)?r.contrib:0;
-    h+='<div style="display:grid;grid-template-columns:190px 1fr 200px;gap:24px;align-items:start;padding:18px 4px;border-bottom:1px solid var(--line)">'
+    why+='<div style="display:grid;grid-template-columns:190px 1fr 200px;gap:24px;align-items:start;padding:18px 4px;border-bottom:1px solid var(--line)">'
       +'<div><div style="display:flex;align-items:baseline;gap:8px"><div style="font-size:11px;font-weight:600;letter-spacing:.16em">'+esc(r.label)+'</div></div><div style="font-size:10.5px;letter-spacing:.1em;color:var(--dim);margin-top:6px">'+esc(r.kind)+' · WEIGHT '+(r.weight!=null?r.weight.toFixed(1):'—')+'</div></div>'
       +'<div style="font-size:13.5px;color:var(--ink);line-height:1.5;opacity:.92">'+esc(r.detail)+'</div>'
       +'<div style="display:flex;flex-direction:column;gap:7px"><div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:10px;letter-spacing:.12em;color:var(--dim)">VOTE</span>'+colSpan(sgn(v,2),v>=0?'var(--bull)':'var(--bear)',13,600)+'</div><div>'+voteBarHTML(v)+'</div><div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:10px;letter-spacing:.12em;color:var(--dim)">CONTRIBUTION</span>'+colSpan(sgn(contrib,2),contrib>=0?'var(--bull)':'var(--bear)',14,700)+'</div></div></div>'; });
-  h+='<div style="font-size:12.5px;color:var(--dim);margin-top:16px;line-height:1.55;max-width:780px">Composite = weighted average of the votes, rescaled to ±100. Mean-reversion rules (RSI, Bollinger) buy weakness; trend &amp; curvature rules buy strength. Confidence is separate — high only when the rules agree, the signal is strong, and volume confirms.</div></div></section>';
+  why+='<div style="font-size:12.5px;color:var(--dim);margin-top:16px;line-height:1.55;max-width:780px">Composite = weighted average of the votes, rescaled to ±100. Mean-reversion rules (RSI, Bollinger) buy weakness; trend &amp; curvature rules buy strength. Confidence is separate — high only when the rules agree, the signal is strong, and volume confirms.</div>';
+  h+=fold('why','WHY THIS SIGNAL — THE 7 RULES','every vote behind the score · sorted by contribution',why);
+  h+='</section>';
   MAIN.innerHTML=h;
   // wire
-  MAIN.querySelectorAll('[data-chip]').forEach(el=>el.addEventListener('click',()=>{ state.selected=el.getAttribute('data-chip'); render(); }));
+  MAIN.querySelectorAll('[data-fold]').forEach(el=>el.addEventListener('click',()=>{ const k=el.getAttribute('data-fold'); state.folds[k]=!state.folds[k]; render(); }));
+  const cs=document.getElementById('coinSearch');
+  if(cs){ cs.addEventListener('input',()=>{ const pl=document.getElementById('pickList'); if(pl){ pl.innerHTML=pickListHTML(state.selected,cs.value); wirePickList(); } }); }
+  wirePickList();
   MAIN.querySelectorAll('[data-range]').forEach(el=>el.addEventListener('click',()=>{ const k=el.getAttribute('data-range'); const counts={'3D':72,'7D':168,'14D':336,'ALL':co.c.length}; setRange(k,counts[k]); }));
   priceC=document.getElementById('priceC'); compC=document.getElementById('compC'); rsiC=document.getElementById('rsiC'); curvC=document.getElementById('curvC'); tipEl=document.getElementById('tip');
-  priceC.addEventListener('mousemove',onMove); priceC.addEventListener('mouseleave',onLeave); priceC.addEventListener('mousedown',onDown);
-  if(_wheelH) priceC.removeEventListener('wheel',_wheelH); _wheelH=(e)=>onWheel(e); priceC.addEventListener('wheel',_wheelH,{passive:false});
+  if(priceC){
+    priceC.addEventListener('mousemove',onMove); priceC.addEventListener('mouseleave',onLeave); priceC.addEventListener('mousedown',onDown);
+    if(_wheelH) priceC.removeEventListener('wheel',_wheelH); _wheelH=(e)=>onWheel(e); priceC.addEventListener('wheel',_wheelH,{passive:false});
+  }
   drawAll();
 }
 
@@ -754,6 +798,8 @@ function guideHTML(){
       ['Flag','BUY / SELL / NEUTRAL — just the score passing fixed thresholds, always shown with its reasoning.'],
       ['Top driver','The single rule pushing this score hardest right now. Click any row for the full story.']])
     +_gSec('02 · COIN DETAIL — one coin, all the reasoning',[
+      ['Unfolding sections','The page is split into fold-out tabs — tap any header (▸/▾) to open or close it: coin picker, chart, outlook, reasoning.'],
+      ['Coin picker','Tap “COIN: … — CHANGE / SEARCH” and type: your tracked coins AND every liquid pair on the exchange are in there. Exchange coins load their charts live.'],
       ['Candles','Each bar = 1 hour: thin line is the range prices touched, thick part is open→close.'],
       ['Two curved lines','Moving averages — slow-motion price. When the fast one is above the slow one, the trend points up.'],
       ['Shaded band behind candles','Bollinger envelope — where price “usually” lives; touching an edge means stretched.'],

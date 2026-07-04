@@ -261,6 +261,9 @@ def run_scout(
         "aborted": aborted,
         "minQuoteVolume": float(scfg["min_quote_volume_usd"]),
         "rows": rows[:top],
+        # The whole liquid universe (compact): lets the page offer "search the
+        # entire market" with live deep-dives, beyond the top rows kept above.
+        "universe": [{"s": c["symbol"], "p": c["p24h"]} for c in selected],
     }
 
 

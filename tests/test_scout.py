@@ -79,6 +79,8 @@ def test_run_scout_offline_snapshot(cfg):
     assert 0 < len(rows) <= cfg["scout"]["top"]
     comps = [r["composite"] for r in rows]
     assert comps == sorted(comps, reverse=True)
+    assert len(snap["universe"]) == snap["eligible"]
+    assert all(set(u) == {"s", "p"} for u in snap["universe"])
     for r in rows:
         for k in ["symbol", "name", "price", "composite", "confidence", "flag",
                   "risk", "riskFlags", "record", "outlook", "quoteVolume", "tracked"]:
