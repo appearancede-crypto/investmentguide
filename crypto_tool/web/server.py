@@ -38,6 +38,7 @@ _COIN_TTL = float(os.environ.get("COIN_CACHE_TTL", "120"))
 _COIN_MAX = int(os.environ.get("COIN_CACHE_MAX", "48"))   # bound deep-dive cache RAM
 _page = {"ts": 0.0, "body": None, "gz": None, "building": False}   # type: Dict[str, Any]
 _SCOUT_MIN = {"v": 0}                  # active background-sweep cadence (0 = off)
+_BOOT = {"done": False}                # boot ingest finished? gates request-side rebuilds
 
 # Shown while the first data sync / first page build is still running. The
 # port binds immediately at boot (so the host's health check and proxy are
@@ -156,7 +157,9 @@ def _make_handler(config_path: Optional[str]):
                 with _page_lock:
                     body, gz, ts = _page["body"], _page["gz"], _page["ts"]
                 if body is None:
-                    if _has_data(config_path):
+                    # Only kick a build once boot ingest is done — building
+                    # mid-ingest would publish a page with half the coins.
+                    if _BOOT["done"] and _has_data(config_path):
                         _kick_rebuild(config_path)
                     self._send(200, _WARMING_HTML, "text/html; charset=utf-8")
                     return
@@ -297,14 +300,22 @@ def serve(cfg: Dict[str, Any], config_path: Optional[str] = None,
     httpd = ThreadingHTTPServer(("0.0.0.0", port), _make_handler(config_path))
 
     def _boot():
-        if ensure_data:
-            try:
-                _ensure_data(cfg, ingest_limit)
-            except Exception as exc:  # noqa: BLE001
-                print(f"Boot ingest failed (serving whatever data exists): {exc}")
+        try:
+            if ensure_data:
+                try:
+                    _ensure_data(cfg, ingest_limit)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Boot ingest failed (serving whatever data exists): {exc}")
+        finally:
+            _BOOT["done"] = True
         if _has_data(config_path):
             print("Building the page (pre-warm) …")
-            _kick_rebuild(config_path)
+            try:
+                # Direct (not _kick_rebuild): waits out any in-flight build and
+                # guarantees a page built from the COMPLETE boot dataset.
+                _build_page_now(config_path)
+            except Exception as exc:  # noqa: BLE001
+                print(f"Pre-warm page build failed: {exc}")
 
     threading.Thread(target=_boot, daemon=True).start()
     if refresh_min and refresh_min > 0:
