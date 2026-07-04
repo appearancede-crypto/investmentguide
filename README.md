@@ -33,6 +33,7 @@ Binance public API.
 | **The Outlook (projection cone)** | For every coin: finds the K past moments that looked most like *right now* (similar score, trend, curvature, stretch) and draws where price actually went afterwards — a quantile fan projected from the current price, with "chance higher" stats at 12h/24h/48h, a plain-English summary, and a **calibration check** that replays the method on the coin's own past and reports how often reality stayed inside the band. A base rate, not a prophecy — and it says so. |
 | **Test money (web)** | Type in a pretend amount, pick "follow the signals" or "just buy & hold", one coin or all, rewind a week/month/3 months — and see in plain dollars what you'd have, what the other plan would have given, the fees, every trade, and the worst slump you'd have had to sit through. |
 | **Simple mode** | A header toggle (on by default) that adds jargon-free explainer strips to every view, written for someone who has never invested. |
+| **Guide** | A two-minute tour (auto-shown on first visit, reopenable via the **? GUIDE** header button) explaining every chart, strip, button and gesture in the app, tab by tab. |
 | **Opportunity scanner** | Ranks all tracked coins so the strongest setups float to the top. |
 | **Coin scout (whole exchange)** | One sweep runs the same engine over **every liquid USDT pair on Binance** (~150–300 pairs clear the turnover floor, most-traded first): score, confidence, each coin's own hindsight track record, a compact outlook, and a CoinGecko risk tag. Stablecoins and leveraged tokens are filtered out. The strongest setups surface in the web UI's SCOUT tab — every row click opens the full deep-dive. Explicitly **not a buy list**. |
 | **Honest backtester** | Replays the engine over history with realistic fees and **next-bar fills (no look-ahead)**, benchmarked against buy-&-hold. |
@@ -91,8 +92,10 @@ followed each one, and shows their distribution:
 
 - a **projection cone** on the price chart beyond the NOW line — dashed median,
   a darker band holding half the outcomes, a lighter band holding 80%;
-- **checkpoint stats** — "in 62% of similar past moments, price was higher a
-  day later; typical move +0.8%";
+- **checkpoint stats** at +4h / +12h / +24h / +2d — "in 62% of similar past
+  moments, price was higher a day later; typical move +0.8%" — each carrying
+  its own **measured prediction error** ("the middle path was typically ±1.0%
+  off"), so quick flippers see exactly how blurry the short horizons are;
 - a **reality check** — the same method is replayed at past moments whose
   outcome windows do **not overlap** (so the sample count is an honest count of
   independent trials), and the page reports how often the real outcome landed

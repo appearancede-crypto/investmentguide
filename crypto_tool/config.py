@@ -86,10 +86,11 @@ DEFAULTS: Dict[str, Any] = {
         "eval_band": 1.0,    # a move must clear +/- this % to count as right or wrong
         "eval_persist": 2,   # a flag must HOLD this many bars to count as a call (blip filter)
         "eval_conf_gate": 0.6,   # calls with confidence >= this AND regime agreement are graded separately
-        "eval_horizon_long": 72,  # second, longer grading horizon (summary only)
+        "eval_horizon_long": 72,   # second, longer grading horizon (summary only)
+        "eval_horizon_short": 6,   # quick-flip grading horizon (summary only)
         "forecast": {
             "bars": 48,             # how far forward the outlook cone is projected
-            "checkpoints": [12, 24, 48],  # stats reported at these steps ahead
+            "checkpoints": [4, 12, 24, 48],  # stats + typical miss at these steps ahead
             "min_candidates": 60,   # refuse to project on thinner history than this
             "k_frac": 0.08,         # analogues = this fraction of candidate bars …
             "k_min": 25,            # … clamped between k_min and k_max

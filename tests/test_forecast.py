@@ -47,6 +47,32 @@ def test_project_checkpoints_and_calibration_sane(cfg):
     assert "not a promise" in fc["summary"]
 
 
+def test_calibration_reports_per_horizon_errors(cfg):
+    """Quick-flip honesty: every checkpoint carries its own measured coverage
+    AND typical miss (median |realized − projected median|)."""
+    fc = forecast.project(_enriched(cfg, n=3000), cfg)
+    cal = fc["calibration"]
+    assert cal is not None and cal.get("horizons")
+    assert [h["bars"] for h in cal["horizons"]] == [c["bars"] for c in fc["checkpoints"]]
+    for h in cal["horizons"]:
+        assert 0.0 <= h["coverage_pct"] <= 100.0
+        assert h["typical_miss_pct"] >= 0.0
+    # shorter horizons should have smaller (or equal) typical misses — moves grow with time
+    misses = [h["typical_miss_pct"] for h in cal["horizons"]]
+    assert misses[0] <= misses[-1] + 0.5
+
+
+def test_duplicate_checkpoints_cannot_inflate_coverage(cfg):
+    """A hand-edited config with a repeated checkpoint must not double-count."""
+    dup_cfg = {**cfg, "web": {**cfg["web"], "forecast": {
+        **cfg["web"]["forecast"], "checkpoints": [24, 24, 48, 48]}}}
+    fc = forecast.project(_enriched(dup_cfg, n=1500), dup_cfg)
+    assert [c["bars"] for c in fc["checkpoints"]] == [24, 48]
+    for h in fc["calibration"]["horizons"]:
+        assert 0.0 <= h["coverage_pct"] <= 100.0
+    assert 0.0 <= fc["calibration"]["coverage_pct"] <= 100.0
+
+
 def test_project_is_json_safe(cfg):
     json.dumps(forecast.project(_enriched(cfg), cfg), allow_nan=False)
 

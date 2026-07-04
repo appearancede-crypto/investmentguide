@@ -61,6 +61,11 @@ def test_signal_eval_persistence_and_confidence_split():
                            extra_horizons=[10])["summary"]
     assert s4["alts"] and s4["alts"][0]["horizon"] == 10
     assert s4["alts"][0]["resolved"] >= 1
+    # duplicated extra horizons must not double-count sample sizes
+    s5 = build.signal_eval(df, horizon=5, band=1.0, conf_gate=0.6, persist=2,
+                           extra_horizons=[10, 10])["summary"]
+    assert len(s5["alts"]) == 1
+    assert s5["alts"][0]["resolved"] == s4["alts"][0]["resolved"]
 
 
 def _seed(conn, cfg, n=300):

@@ -113,7 +113,7 @@ def signal_eval(tail: pd.DataFrame, horizon: int, band: float,
     confs = tail["confidence"].tolist() if has_conf else [None] * n
     regimes = tail["regime"].tolist() if "regime" in tail.columns else [0] * n
     persist = max(1, int(persist))
-    extras = [int(h) for h in (extra_horizons or []) if int(h) != horizon]
+    extras = list(dict.fromkeys(int(h) for h in (extra_horizons or []) if int(h) != horizon))
 
     call: List[str | None] = [None] * n
     conf_call: List[bool] = [False] * n
@@ -228,7 +228,8 @@ def _coin_dict(df: pd.DataFrame, cfg: Dict[str, Any], sym: str,
     ev = signal_eval(tail, horizon, band,
                      conf_gate=float(web.get("eval_conf_gate", 0.6)),
                      persist=int(web.get("eval_persist", 2)),
-                     extra_horizons=[int(web.get("eval_horizon_long", 72))])
+                     extra_horizons=[int(web.get("eval_horizon_short", 6)),
+                                     int(web.get("eval_horizon_long", 72))])
     try:
         fc = forecast.project(e, cfg)   # full history -> best analogue pool
     except Exception:  # noqa: BLE001 — the page must never die on the outlook
@@ -307,6 +308,7 @@ def build_payload(conn, cfg: Dict[str, Any], history: int | None = None) -> Dict
         "evalConfGate": float(web.get("eval_conf_gate", 0.6)),
         "evalPersist": int(web.get("eval_persist", 2)),
         "evalHorizonLong": int(web.get("eval_horizon_long", 72)),
+        "evalHorizonShort": int(web.get("eval_horizon_short", 6)),
         "names": names,
         "discover": build_discover(cfg, set(names)),
         "scout": database.load_scout(conn),

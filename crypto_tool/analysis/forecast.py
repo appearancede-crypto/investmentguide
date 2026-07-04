@@ -126,7 +126,9 @@ def project(e: pd.DataFrame, cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     fcfg = {**_DEFAULTS, **(cfg.get("web", {}).get("forecast") or {})}
     horizon = int(fcfg["bars"])
-    checkpoints = [int(c) for c in fcfg["checkpoints"] if int(c) <= horizon]
+    # Dedup + sort: a duplicated checkpoint in user config must not double-count
+    # calibration tallies (coverage could otherwise read >100%).
+    checkpoints = sorted({int(c) for c in fcfg["checkpoints"] if int(c) <= horizon})
     n = len(e)
     if n < horizon + 50:
         return None
@@ -180,8 +182,7 @@ def project(e: pd.DataFrame, cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "p90_pct": round(float(np.percentile(r, 90)) * 100.0, 2),
         })
 
-    h_star = checkpoints[-1] if checkpoints else horizon
-    calib = _calibrate(close, X, cand_ok, horizon, h_star, fcfg)
+    calib = _calibrate(close, X, cand_ok, horizon, checkpoints or [horizon], fcfg)
 
     quality = _quality(k, len(candidates), calib)
     summary = _summary(cps, k, sep, bar_hours, quality)
@@ -215,7 +216,17 @@ def _bar_hours(e: pd.DataFrame) -> Optional[float]:
 def _band_at(t: int, close: np.ndarray, X: np.ndarray, cand_ok: np.ndarray,
              horizon: int, h_star: int, fcfg: Dict[str, Any]) -> Optional[Tuple[float, float]]:
     """The 10–90% band for the ``h_star``-step move, built exactly as it would
-    have been at bar ``t`` — candidates must have fully resolved by ``t``."""
+    have been at bar ``t`` — candidates must have fully resolved by ``t``.
+    (Kept as the single-horizon form: unit tests poison the future against it.)"""
+    bands = _bands_at(t, close, X, cand_ok, horizon, [h_star], fcfg)
+    return None if bands is None else bands[h_star][:2]
+
+
+def _bands_at(t: int, close: np.ndarray, X: np.ndarray, cand_ok: np.ndarray,
+              horizon: int, hs: List[int], fcfg: Dict[str, Any]
+              ) -> Optional[Dict[int, Tuple[float, float, float]]]:
+    """(lo, hi, median) of the analogue moves at each step in ``hs``, built
+    exactly as ``project`` would have at bar ``t`` (one KNN, many horizons)."""
     idx = np.arange(len(close))
     cand = idx[cand_ok & (idx + horizon <= t)]
     if len(cand) < int(fcfg["min_candidates"]):
@@ -223,21 +234,29 @@ def _band_at(t: int, close: np.ndarray, X: np.ndarray, cand_ok: np.ndarray,
     near = _knn(X, X[t], cand, _pick_k(len(cand), fcfg), _min_sep(horizon))
     if len(near) < _MIN_EPISODES:
         return None
-    r = close[near + h_star] / close[near] - 1.0
-    return float(np.percentile(r, 10)), float(np.percentile(r, 90))
+    out: Dict[int, Tuple[float, float, float]] = {}
+    for h in hs:
+        r = close[near + h] / close[near] - 1.0
+        out[h] = (float(np.percentile(r, 10)), float(np.percentile(r, 90)),
+                  float(np.median(r)))
+    return out
 
 
 def _calibrate(close: np.ndarray, X: np.ndarray, cand_ok: np.ndarray,
-               horizon: int, h_star: int, fcfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """At up to ``calib_samples`` past bars — spaced at least ``h_star`` apart
-    so their outcome windows do NOT overlap — rebuild the 10–90% band exactly
-    as ``project`` would have at that time, and count how often the realised
-    move landed inside it. The reported sample count is therefore an honest
-    count of independent trials. Target coverage is 80%."""
+               horizon: int, checkpoints: List[int],
+               fcfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """At up to ``calib_samples`` past bars — spaced at least ``h_star`` (the
+    longest checkpoint) apart so outcome windows do NOT overlap — rebuild the
+    bands exactly as ``project`` would have at that time, and measure at EVERY
+    checkpoint: how often reality landed inside the 10–90% band (target 80%),
+    and the typical miss — the median absolute gap between the projected
+    middle path and what actually happened. The miss is the number a quick
+    flipper actually needs: how wrong the middle of the cone tends to be."""
     n = len(close)
     samples = int(fcfg["calib_samples"])
+    h_star = max(checkpoints) if checkpoints else horizon
 
-    # A bar t is testable when its band can be built and its outcome at
+    # A bar t is testable when its bands can be built and its outcome at
     # t+h_star was observed; keep only non-overlapping outcome windows.
     testable: List[int] = []
     for t in np.arange(n):
@@ -256,23 +275,34 @@ def _calibrate(close: np.ndarray, X: np.ndarray, cand_ok: np.ndarray,
         sel = np.linspace(0, len(testable) - 1, samples).round().astype(int)
         testable = [testable[i] for i in np.unique(sel)]
 
-    inside = 0
     scored = 0
+    inside = {h: 0 for h in checkpoints}
+    misses = {h: [] for h in checkpoints}         # |realized − projected median|
     for t in testable:
-        band = _band_at(t, close, X, cand_ok, horizon, h_star, fcfg)
-        if band is None:
+        bands = _bands_at(t, close, X, cand_ok, horizon, checkpoints, fcfg)
+        if bands is None:
             continue
         scored += 1
-        realized = close[t + h_star] / close[t] - 1.0
-        if band[0] <= realized <= band[1]:
-            inside += 1
+        for h in checkpoints:
+            lo, hi, med = bands[h]
+            realized = close[t + h] / close[t] - 1.0
+            if lo <= realized <= hi:
+                inside[h] += 1
+            misses[h].append(abs(realized - med))
     if scored < 10:
         return None
+    h_primary = h_star
     return {
         "samples": scored,
-        "coverage_pct": round(inside / scored * 100.0, 1),
+        "coverage_pct": round(inside[h_primary] / scored * 100.0, 1),
         "target_pct": 80,
-        "horizon_bars": h_star,
+        "horizon_bars": h_primary,
+        "horizons": [
+            {"bars": h,
+             "coverage_pct": round(inside[h] / scored * 100.0, 1),
+             "typical_miss_pct": round(float(np.median(misses[h])) * 100.0, 2)}
+            for h in checkpoints
+        ],
     }
 
 
@@ -337,7 +367,7 @@ def _summary(cps: List[Dict[str, Any]], k: int, sep: int,
 
 _DEFAULTS: Dict[str, Any] = {
     "bars": 48,             # how far forward the cone is drawn
-    "checkpoints": [12, 24, 48],
+    "checkpoints": [4, 12, 24, 48],   # 4h serves the quick flippers honestly
     "min_candidates": 60,   # below this, refuse to draw a cone at all
     "k_frac": 0.08,         # analogues used = this fraction of candidates …
     "k_min": 25,            # … clamped to this range (and to the pool size)
