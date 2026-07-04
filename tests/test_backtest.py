@@ -45,3 +45,13 @@ def test_backtest_deterministic(cfg):
     m1 = metrics.compute_metrics(engine.run_backtest(df, cfg))
     m2 = metrics.compute_metrics(engine.run_backtest(df, cfg))
     assert m1 == m2
+
+
+def test_accuracy_gates_filter_entries(cfg):
+    """Stricter gates must never produce MORE trades — accuracy over activity."""
+    df = synthetic.generate_ohlcv("BTCUSDT", interval="1h", n=600, seed=5)
+    loose = engine.run_backtest(df, cfg, params={"conf_gate": 0.0, "confirm_bars": 1})
+    default = engine.run_backtest(df, cfg)  # ships with gate 0.6 + confirm 2
+    strict = engine.run_backtest(df, cfg, params={"conf_gate": 0.95, "confirm_bars": 4})
+    assert len(default["trades"]) <= len(loose["trades"])
+    assert len(strict["trades"]) <= len(default["trades"])

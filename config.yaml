@@ -90,6 +90,12 @@ backtest:
   exit_score: 0           # exit to cash when composite <= this
   stop_loss_pct: 8.0      # hard stop from entry (0 disables)
   take_profit_pct: 0.0    # take profit from entry (0 disables)
+  # Accuracy-first entries. Measured on the coins' own hindsight records, the
+  # engine's TRUSTED calls (confidence-gated + trend-agreeing) grade well above
+  # its all-calls ~coin-flip rate — so the strategy only takes those by
+  # default. Fewer trades, better ones. Set conf_gate: 0 to trade every signal.
+  conf_gate: 0.6
+  confirm_bars: 2
 
 paper:
   # Fictional-money portfolio that allocates virtual capital across the coins

@@ -243,6 +243,8 @@ def _coin_dict(df: pd.DataFrame, cfg: Dict[str, Any], sym: str,
         "emaF": _arr(tail["ema_fast"]), "emaS": _arr(tail["ema_slow"]),
         "bbUp": _arr(tail["bb_upper"]), "bbLo": _arr(tail["bb_lower"]),
         "rsi": _arr(tail["rsi"]), "comp": _arr(tail["composite"]),
+        "conf": _arr(tail["confidence"].round(3)),
+        "regime": [int(x) for x in tail["regime"].fillna(0).tolist()],
         "velZ": _arr(tail["vel_z"]), "accZ": _arr(tail["acc_z"]),
         "flag": [str(x) for x in tail["flag"].tolist()],
         "call": ev["call"], "outcome": ev["outcome"], "fwd": ev["fwd"],
@@ -320,6 +322,8 @@ def build_payload(conn, cfg: Dict[str, Any], history: int | None = None) -> Dict
         "backtestDefaults": {
             "entry": b["entry_score"], "exit": b["exit_score"],
             "stop": b["stop_loss_pct"], "fee": b["fee_pct"],
+            "gate": float(b.get("conf_gate", 0.6)),
+            "confirm": int(b.get("confirm_bars", 2)),
         },
         "coins": coins,
     }

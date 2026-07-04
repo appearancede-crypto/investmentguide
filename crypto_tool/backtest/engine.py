@@ -42,6 +42,9 @@ def run_backtest(
     low = e["low"].to_numpy(dtype=float)
     close = e["close"].to_numpy(dtype=float)
     comp = e["composite"].to_numpy(dtype=float)
+    conf = e["confidence"].to_numpy(dtype=float)
+    regime = (e["regime"].to_numpy(dtype=float) if "regime" in e.columns
+              else np.zeros(n))
     otime = e["open_time"].to_numpy(dtype="int64")
     ctime = e["close_time"].to_numpy(dtype="int64")
 
@@ -51,6 +54,11 @@ def run_backtest(
     exit_score = p["exit_score"]
     sl = p["stop_loss_pct"] / 100.0
     tp = p["take_profit_pct"] / 100.0
+    # Accuracy-first entries: the measured edge lives in the calls the engine
+    # itself trusts, so by default a buy also requires the confidence gate,
+    # trend-regime agreement, and the score holding for confirm_bars bars.
+    gate = float(p.get("conf_gate", 0.0))
+    confirm = max(1, int(p.get("confirm_bars", 1)))
 
     cash = 1.0          # normalised starting capital
     units = 0.0
@@ -110,7 +118,13 @@ def run_backtest(
         # 4) Decide an order for the *next* bar from this bar's (closed) signal.
         if i < n - 1 and not np.isnan(comp[i]):
             if not position and comp[i] >= entry_score:
-                pending = "enter"
+                ok = all(i - k >= 0 and not np.isnan(comp[i - k])
+                         and comp[i - k] >= entry_score for k in range(confirm))
+                if ok and gate > 0:
+                    cv = conf[i]
+                    ok = cv == cv and cv >= gate and regime[i] >= 0
+                if ok:
+                    pending = "enter"
             elif position and comp[i] <= exit_score:
                 pending = "exit"
 

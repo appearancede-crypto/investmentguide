@@ -95,7 +95,7 @@ const THRESH = DATA.thresholds;
 const THEMES = ['carbon','bone','blueprint','oxide'];
 
 let state = { view:'scanner', selected:(DATA.names[0]||null), rangeKey:'7D',
-              theme: (DATA.theme||'carbon'), bt:{...DATA.backtestDefaults},
+              theme: (DATA.theme||'carbon'), bt:{...DATA.backtestDefaults, gateOn:true, confirmOn:true},
               discoverSort: (DATA.discover&&DATA.discover.sort)||'momentum',
               simple:true,
               folds:{ picker:false, chart:true, outlook:true, why:false },
@@ -145,12 +145,21 @@ function markSimpleBtn(){ const b=document.getElementById('simpleBtn'); if(!b) r
 // ---------- backtest (client-side, driven by real comp/price) ----------
 function backtest(co, p, startIdx){
   const c=co.c, comp=co.comp, t=co.t, n=c.length;
+  const confA=co.conf||[], regA=co.regime||[];
+  // Accuracy-first entries: the measured edge lives in the calls the engine
+  // trusts, so buys can additionally require the confidence gate + trend
+  // agreement, and the score holding for `confirm` bars (blips ≠ entries).
+  const gate=(p.gateOn===false)?0:(p.gate||0);
+  const confirm=(p.confirmOn===false)?1:Math.max(1,p.confirm||1);
   let start=0; while(start<n && !isFinite(comp[start])) start++; start=Math.max(start, 60, startIdx||0);
   const fee=p.fee/100;
   const pos=new Array(n).fill(0); const reason=new Array(n).fill('');
   let cur=0, entryPrice=0;
   for(let i=start+1;i<n;i++){ let next=cur; const sig=comp[i-1];
-    if(cur===0){ if(isFinite(sig)&&sig>=p.entry){ next=1; entryPrice=c[i]; } }
+    if(cur===0){ let ok=isFinite(sig)&&sig>=p.entry;
+      if(ok&&confirm>1){ for(let k=2;k<=confirm;k++){ const s2=comp[i-k]; if(!(isFinite(s2)&&s2>=p.entry)){ ok=false; break; } } }
+      if(ok&&gate>0){ const cv=confA[i-1], rg=regA[i-1]; ok=cv!=null&&isFinite(cv)&&cv>=gate&&(rg==null||rg>=0); }
+      if(ok){ next=1; entryPrice=c[i]; } }
     else { const dd=(c[i-1]-entryPrice)/entryPrice*100; if(p.stop>0&&dd<=-p.stop){ next=0; reason[i]='stop'; } else if(isFinite(sig)&&sig<=p.exit){ next=0; reason[i]='signal'; } }
     pos[i]=next; cur=next; }
   let eq=1, feeUnits=0; const eqArr=[],holdArr=[],rets=[],feeArr=[]; const base=c[start]; const trades=[]; let tEntry=null;
@@ -497,7 +506,8 @@ const INV_PERIOD_WORD={'7D':'week','1M':'month','3M':'three months','ALL':'full 
 function invStartIdx(co,days){ const t=co.t,n=t.length; if(n<2) return 0; const step=(t[n-1]-t[0])/(n-1); const bars=Math.round(days*86400000/Math.max(1,step)); return Math.max(0,n-1-bars); }
 function investSim(){
   const p=state.inv; const amount=Math.max(1,+p.amount||0);
-  const btp={entry:DATA.backtestDefaults.entry, exit:DATA.backtestDefaults.exit, stop:DATA.backtestDefaults.stop, fee:DATA.backtestDefaults.fee};
+  const btp={entry:DATA.backtestDefaults.entry, exit:DATA.backtestDefaults.exit, stop:DATA.backtestDefaults.stop, fee:DATA.backtestDefaults.fee,
+             gate:DATA.backtestDefaults.gate, confirm:DATA.backtestDefaults.confirm, gateOn:true, confirmOn:true};
   const fee=btp.fee/100;
   const syms=p.scope==='coin'?[state.selected]:DATA.names.slice();
   const days=INV_PERIODS[p.period];
@@ -549,7 +559,7 @@ function renderInvest(){ const sel=state.selected; const p=state.inv; const S=in
   h+='<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:18px">'
     +'<div><div style="font-size:44px;font-weight:500;letter-spacing:-.035em;line-height:.92">Try it without risking a cent.</div>'
     +'<div style="font-size:14.5px;color:var(--dim);max-width:620px;margin-top:14px;line-height:1.55">Pick an amount of pretend money, choose a plan, and we rewind the clock: the rules fire exactly as they would have, with real historical prices and a typical exchange fee. What you see is roughly what you would have had — before slippage, spreads and taxes, and assuming you never flinched.</div></div></div>';
-  h+=explain('<b>How to read this:</b> “Follow the signals” buys when the engine’s score turns clearly positive and sells back to cash when it fades (the same rules as the Backtest tab, on its default settings). “Just buy &amp; hold” buys on day one and never touches it — the honest yardstick every strategy must beat. This is a replay of the past, not a preview of the future: a plan that won last month can lose next month.');
+  h+=explain('<b>How to read this:</b> “Follow the signals” is accuracy-first: it buys only when the score turns clearly positive <b>and</b> the engine trusts its own call — confidence ≥ '+Math.round((DATA.backtestDefaults.gate||0)*100)+'%, the trend agreeing, and the signal holding for '+(DATA.backtestDefaults.confirm||2)+' bars (one-hour blips are not entries). It sells back to cash when the score fades or the stop-loss hits. Fewer trades, better ones. “Just buy &amp; hold” buys on day one and never touches it — the honest yardstick every strategy must beat. This is a replay of the past, not a preview of the future.');
   // controls
   const chip=(attr,val,on,label)=>'<button '+attr+'="'+val+'" style="background:none;border:1px solid '+(on?'var(--accent)':'var(--line)')+';color:'+(on?'var(--ink)':'var(--dim)')+';font-family:inherit;font-size:10.5px;font-weight:600;letter-spacing:.1em;padding:7px 13px;cursor:pointer">'+label+'</button>';
   h+='<div style="position:relative;border:1px solid var(--line);background:var(--panel);padding:20px 22px;margin-bottom:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:22px">'+bracket();
@@ -642,7 +652,7 @@ function renderInvest(){ const sel=state.selected; const p=state.inv; const S=in
       h+='<div style="display:grid;grid-template-columns:1fr 120px 120px 130px 70px;gap:10px;padding:11px 2px;border-bottom:1px solid var(--line);font-size:12.5px;align-items:center"><div style="font-weight:600">'+esc(pc.sym)+'</div><div style="text-align:right">'+fmtMoney(a)+'</div><div style="text-align:right;color:var(--dim)">'+fmtMoney(b)+'</div><div style="text-align:right">'+colSpan(sgnMoney(d),d>=0?'var(--bull)':'var(--bear)',12.5,600)+'</div><div style="text-align:right;color:var(--dim)">'+pc.trades+'</div></div>'; });
     h+='</div>'; }
   h+='<div style="display:flex;gap:14px;align-items:flex-start;margin-top:4px;padding:16px 20px;border:1px solid var(--line);background:var(--panel)"><div style="width:4px;align-self:stretch;background:var(--accent);flex:none"></div><div style="font-size:12.5px;color:var(--dim);line-height:1.6">This is <span style="color:var(--ink)">pretend money on real history</span> — the most honest test we can offer, and still a flattering one: it assumes you would have followed every rule without flinching, and one stretch of the past proves nothing about the future. Change the period and the coin and watch how much the answer moves — that swing <span style="color:var(--ink)">is</span> the risk. And if you ever try any of this with real money, never use money you could not afford to lose.</div></div>';
-  h+='<div style="display:flex;gap:14px;align-items:flex-start;margin-top:14px;padding:16px 20px;border:1px solid var(--line);background:var(--panel)"><div style="width:4px;align-self:stretch;background:var(--warn);flex:none"></div><div style="font-size:12.5px;color:var(--dim);line-height:1.6"><b style="color:var(--ink);letter-spacing:.06em">DOES IT LEARN?</b> There is a learning loop — the paper-trading engine can re-weight the 7 rules toward whatever has recently been making money (strictly walk-forward, no peeking). But it is <span style="color:var(--ink)">measured, not trusted</span>: it always runs against a frozen twin that never learns, and the difference is reported in dollars. The honest finding so far: adaptation often makes things <span style="color:var(--ink)">worse</span> — it tends to learn “trade more”, and fees eat the difference. Markets change character, so “gets smarter with time” is a promise no honest tool can make. Measure it on your own data: <span style="color:var(--ink);font-family:monospace">python -m crypto_tool.cli paper-compare</span>.</div></div>';
+  h+='<div style="display:flex;gap:14px;align-items:flex-start;margin-top:14px;padding:16px 20px;border:1px solid var(--line);background:var(--panel)"><div style="width:4px;align-self:stretch;background:var(--warn);flex:none"></div><div style="font-size:12.5px;color:var(--dim);line-height:1.6"><b style="color:var(--ink);letter-spacing:.06em">DOES IT LEARN?</b> There is a learning loop — the paper-trading engine can re-weight the 7 rules toward whatever has recently been making money (strictly walk-forward, no peeking). But it is <span style="color:var(--ink)">measured, not trusted</span>: it always runs against a frozen twin that never learns, and the difference is reported in dollars. The honest finding so far: adaptation often makes things <span style="color:var(--ink)">worse</span> — it tends to learn “trade more”, and fees eat the difference. Markets change character, so “gets smarter with time” is a promise no honest tool can make. That is why learning ships <span style="color:var(--ink)">switched off</span>: the rules stay fixed, and accuracy is pursued the honest way — by being pickier about entries (the confidence gate and confirmation you can toggle on the Backtest tab), not by rewriting the rules after the fact. Measure learning yourself any time: <span style="color:var(--ink);font-family:monospace">python -m crypto_tool.cli paper-compare</span>.</div></div>';
   h+='</section>'; MAIN.innerHTML=h; wireInvest(); invC=document.getElementById('invC'); drawAll();
 }
 function wireInvest(){
@@ -667,8 +677,13 @@ function renderBacktest(){ const sel=state.selected; const co=coin(sel); const b
     +'<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:flex-end">'+coinChips(sel,true)+'</div></div>';
   h+=explain('A <b>backtest</b> answers: “if I had followed these exact rules in the past, what would have happened?” Use the sliders to change the rules — when to buy in (entry score), when to give up (exit score), and the safety net (stop loss). The dashed line is what simply buying and holding would have done; a strategy only earns its keep if it beats that. For the same idea in plain dollars, use the TEST MONEY tab.');
   const sl=(label,val,min,max,step,key)=>'<div><div style="display:flex;justify-content:space-between;font-size:10px;letter-spacing:.14em;color:var(--dim)"><span>'+label+'</span><span style="color:var(--ink);font-weight:600">'+val+'</span></div><input type="range" min="'+min+'" max="'+max+'" step="'+step+'" value="'+state.bt[key]+'" data-bt="'+key+'" style="width:100%;margin-top:12px"></div>';
-  h+='<div style="position:relative;border:1px solid var(--line);background:var(--panel);padding:20px 22px;display:grid;grid-template-columns:repeat(4,1fr);gap:26px;margin-bottom:26px">'+bracket()
+  h+='<div style="position:relative;border:1px solid var(--line);background:var(--panel);padding:20px 22px;display:grid;grid-template-columns:repeat(4,1fr);gap:26px;margin-bottom:12px">'+bracket()
     +sl('ENTRY SCORE ≥',state.bt.entry,0,100,5,'entry')+sl('EXIT SCORE ≤',state.bt.exit,-100,50,5,'exit')+sl('STOP LOSS %',state.bt.stop.toFixed(1),0,25,0.5,'stop')+sl('FEE % / SIDE',state.bt.fee.toFixed(2),0,0.5,0.01,'fee')+'</div>';
+  const tgl=(key,on,label,title)=>'<button data-btt="'+key+'" title="'+title+'" style="background:none;border:1px solid '+(on?'var(--accent)':'var(--line)')+';color:'+(on?'var(--ink)':'var(--dim)')+';font-family:inherit;font-size:10px;font-weight:600;letter-spacing:.1em;padding:7px 13px;cursor:pointer">'+label+': '+(on?'ON':'OFF')+'</button>';
+  h+='<div style="display:flex;gap:10px;margin-bottom:26px;flex-wrap:wrap;align-items:center">'
+    +tgl('gateOn',state.bt.gateOn,'CONFIDENT ENTRIES ONLY · CONF ≥'+Math.round((DATA.backtestDefaults.gate||0)*100)+'% + UPTREND','accuracy over activity: only buy when the engine also trusts its own signal (confidence gate + trend regime agreement)')
+    +tgl('confirmOn',state.bt.confirmOn,''+(DATA.backtestDefaults.confirm||2)+'-BAR CONFIRMATION','the score must hold above the entry line for consecutive bars — one-hour blips are not entries')
+    +'<span style="font-size:10.5px;color:var(--dim)">accuracy filters — fewer trades, better ones · flip them to see the difference</span></div>';
   const mc=(label,big,sub,color)=>'<div style="flex:1;padding:18px 22px;border-right:1px solid var(--line)"><div style="font-size:10px;letter-spacing:.16em;color:var(--dim)">'+label+'</div><div style="font-size:30px;font-weight:600;margin-top:8px'+(color?';color:'+color:'')+'">'+big+'</div><div style="font-size:12px;color:var(--dim);margin-top:4px">'+sub+'</div></div>';
   h+='<div style="display:flex;align-items:stretch;border:1px solid var(--line);margin-bottom:26px;flex-wrap:wrap">'
     +mc('STRATEGY RETURN',sgn(m.total,1)+'%',sgn(m.excess,1)+'% vs hold',m.total>=0?'var(--bull)':'var(--bear)')
@@ -692,6 +707,7 @@ function renderBacktest(){ const sel=state.selected; const co=coin(sel); const b
   MAIN.innerHTML=h;
   MAIN.querySelectorAll('[data-chip]').forEach(el=>el.addEventListener('click',()=>{ state.selected=el.getAttribute('data-chip'); render(); }));
   MAIN.querySelectorAll('[data-bt]').forEach(el=>el.addEventListener('input',()=>{ const k=el.getAttribute('data-bt'); const v=parseFloat(el.value); state.bt={...state.bt,[k]:(k==='entry'||k==='exit')?Math.round(v):v}; render(); }));
+  MAIN.querySelectorAll('[data-btt]').forEach(el=>el.addEventListener('click',()=>{ const k=el.getAttribute('data-btt'); state.bt={...state.bt,[k]:!state.bt[k]}; render(); }));
   eqC=document.getElementById('eqC'); drawAll();
 }
 
@@ -849,6 +865,7 @@ function guideHTML(){
       ['Trade log','Every move the rules made, in dollars, with the reason it sold. Rows sum exactly to the headline.']])
     +_gSec('04 · BACKTEST — tune the rules and replay',[
       ['Sliders','Entry score (when to buy), exit score (when to give up), stop loss (safety net), fee. The replay updates live.'],
+      ['Accuracy filters','Two toggles, on by default: only buy when the engine also trusts its own signal (confidence + uptrend), and only after the score holds for 2 bars. Fewer trades, better ones — flip them off to see why they exist.'],
       ['Equity curve','Solid = the strategy, dashed = just holding. A strategy only earns its keep above the dashed line.'],
       ['Win rate &amp; profit factor','Being right ~50% of the time can still profit if wins outsize losses — that is the whole game.']])
     +_gSec('05 · SCOUT — the whole exchange',[

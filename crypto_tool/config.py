@@ -62,6 +62,9 @@ DEFAULTS: Dict[str, Any] = {
         "exit_score": 0,
         "stop_loss_pct": 8.0,
         "take_profit_pct": 0.0,
+        # Accuracy-first entries (the measured edge is in trusted calls):
+        "conf_gate": 0.6,     # only buy when confidence >= this AND regime agrees (0 = off)
+        "confirm_bars": 2,    # the score must hold this many bars before buying
     },
     "paper": {
         "starting_cash": 10000,
