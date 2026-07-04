@@ -115,6 +115,16 @@ scout:
   pause_ms: 60                # politeness delay between requests
 
 web:
+  # Track-record stability: a directional call only counts once the flag has
+  # HELD for eval_persist bars (single-bar blips are noise, not calls), and
+  # calls where confidence >= eval_conf_gate AND the trend regime agrees are
+  # graded separately — the engine's own filter for calls that deserve weight.
+  # eval_horizon_long adds a second, longer grading horizon (signal-to-noise
+  # improves with time; 72 x 1h = 3 days).
+  eval_persist: 2
+  eval_conf_gate: 0.6
+  eval_horizon_long: 72
+
   # The Outlook cone: "when this coin looked like it does right now, what
   # happened next?" — K-nearest-neighbour analogues over this coin's own past,
   # projected forward as quantile bands. A base rate, not a prediction.

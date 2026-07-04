@@ -234,6 +234,18 @@ Each rule casts a vote in **[−1, +1]** (bearish…bullish):
 only when the rules *agree*, the signal is strong, volume confirms, and there's
 enough history. A loud-but-flimsy signal is shown as low-confidence on purpose.
 
+**Track-record stability** (`web.eval_*` in `config.yaml`): a directional call
+only counts once the flag has *held* for `eval_persist` bars (single-bar blips
+are noise, not calls), calls that passed the engine's own confidence gate
+(`eval_conf_gate` + trend-regime agreement) are graded separately — that
+stricter number is the headline on the page — and everything is graded at a
+second, longer horizon too (`eval_horizon_long`), where signal-to-noise is
+better. Expect ~50–60% on one-day crypto direction even so: that is what
+honest measurement looks like at this horizon, for everyone. Profit, when it
+exists, comes from asymmetry (cutting losers, riding winners), not from
+calling coins right more often — which is why the exits and the risk numbers
+get as much screen space as the calls.
+
 ## Architecture
 
 ```

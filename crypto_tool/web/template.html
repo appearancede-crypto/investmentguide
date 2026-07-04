@@ -235,7 +235,8 @@ function drawPrice(){ const P=prep(priceC); if(!P) return; const {ctx,w,h}=P; co
   // Directional calls, marked by hindsight outcome: ring = played out right,
   // ✕ = wrong, faint triangle = too recent to score.
   idx.forEach(i=>{ const cl2=co.call?co.call[i]:null; if(!cl2) return; const oc=co.outcome[i]; const isBuy=cl2==='buy'; const xx=x(i); const baseY=isBuy?Y(lo[i])+9:Y(hi[i])-9;
-    ctx.globalAlpha = oc===0?0.4:1; ctx.fillStyle = oc===1?(isBuy?bull:bear):dim;
+    const isConf=!!(co.confCall&&co.confCall[i]);
+    ctx.globalAlpha = (oc===0?0.4:1)*(isConf?1:0.45); ctx.fillStyle = oc===1?(isBuy?bull:bear):dim;
     ctx.beginPath(); if(isBuy){ ctx.moveTo(xx,baseY-5); ctx.lineTo(xx-4,baseY+2); ctx.lineTo(xx+4,baseY+2);} else { ctx.moveTo(xx,baseY+5); ctx.lineTo(xx-4,baseY-2); ctx.lineTo(xx+4,baseY-2);} ctx.closePath(); ctx.fill();
     if(oc===1){ ctx.strokeStyle=isBuy?bull:bear; ctx.lineWidth=1.4; ctx.beginPath(); ctx.arc(xx, baseY+(isBuy?-1:1), 7, 0, Math.PI*2); ctx.stroke(); }
     else if(oc===-1){ ctx.strokeStyle=dim; ctx.lineWidth=1.2; const yy=baseY+(isBuy?-11:11); ctx.beginPath(); ctx.moveTo(xx-3,yy-3); ctx.lineTo(xx+3,yy+3); ctx.moveTo(xx+3,yy-3); ctx.lineTo(xx-3,yy+3); ctx.stroke(); }
@@ -301,11 +302,13 @@ function updateTip(co,i,x,w){ if(!tipEl) return; const o=co.o[i],hi=co.h[i],lo=c
   let html='<div style="font-size:10px;letter-spacing:.12em;color:var(--dim);margin-bottom:7px">'+ds+'</div>'+row('O',fmtPrice(o))+row('H',fmtPrice(hi))+row('L',fmtPrice(lo))+row('C','<b>'+fmtPrice(c)+'</b>')+'<div style="height:1px;background:var(--line);margin:7px 0"></div>'+row('Change','<span style="color:'+(chg>=0?'var(--bull)':'var(--bear)')+'">'+sgn(chg,2)+'%</span>')+row('Score','<span style="color:'+sc+';font-weight:600">'+sgn(comp,0)+'</span>')+row('Signal','<span style="color:'+fc+';font-weight:600">'+flag+'</span>');
   const cl2=co.call?co.call[i]:null;
   if(cl2){ const oc=co.outcome[i], fw=co.fwd[i], isBuy=cl2==='buy'; const cc=isBuy?'var(--bull)':'var(--bear)';
+    const isConf=!!(co.confCall&&co.confCall[i]);
     const verdict= oc===1?'✓ played out': oc===-1?'✕ went the other way':'· too recent to score';
     const vc= oc===1?cc:'var(--dim)';
     html+='<div style="height:1px;background:var(--line);margin:7px 0"></div>'
       +'<div style="font-size:9.5px;letter-spacing:.14em;color:var(--dim);margin-bottom:4px">PREDICTED COURSE SHIFT</div>'
       +row('Called','<b style="color:'+cc+'">'+cl2.toUpperCase()+'</b>')
+      +row('Engine trust','<span style="color:'+(isConf?'var(--ink)':'var(--dim)')+'">'+(isConf?'confident':'doubtful')+'</span>')
       +row('Next '+DATA.evalHorizon+'h', fw!=null? '<span style="color:'+(fw>=0?'var(--bull)':'var(--bear)')+'">'+sgn(fw,2)+'%</span>':'—')
       +row('Verdict','<span style="color:'+vc+';font-weight:600">'+verdict+'</span>'); }
   tipEl.innerHTML=html;
@@ -381,7 +384,7 @@ function outlookHTML(co){ const f=co.forecast;
 function renderDetail(){ const sel=state.selected; const co=coin(sel); const L=co.latest; const ev=co.eval||{}; const evScored=(ev.hits||0)+(ev.misses||0);
   let h='<section><div style="font-size:10px;font-weight:500;letter-spacing:.2em;color:var(--dim);margin-bottom:16px">02 — COIN DETAIL · SHOWS ITS REASONING</div>';
   h+='<div style="margin-bottom:24px;display:flex;flex-wrap:wrap;gap:20px;align-items:center">'+coinChips(sel)+'</div>';
-  h+=explain('Each bar on the chart is one hour of trading (a “candle”): the thin line is the full range prices touched, the thick part is where the hour opened and closed. The two curved lines are moving averages — slow-motion versions of price that make the trend easier to see. <b>TRACK RECORD</b> is this engine grading its own homework: of the buy/sell calls it made on this coin, how many did the price actually follow within a day.'+(co.forecast?' The shaded cone to the right of NOW is the outlook — explained just below the chart.':''));
+  h+=explain('Each bar on the chart is one hour of trading (a “candle”): the thin line is the full range prices touched, the thick part is where the hour opened and closed. The two curved lines are moving averages — slow-motion versions of price that make the trend easier to see. <b>TRACK RECORD</b> is this engine grading its own homework: of the buy/sell calls it made on this coin, how many did the price actually follow. Blips that faded within '+DATA.evalPersist+' hours are not counted as calls at all, and the big number grades only the calls the engine itself was confident about — around 50% on everything is normal for one-day crypto moves (that is roughly a coin flip for everyone, including the professionals), which is why the fine print and the risk numbers matter more than the headline.'+(co.forecast?' The shaded cone to the right of NOW is the outlook — explained just below the chart.':''));
   h+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:30px;flex-wrap:wrap;margin-bottom:8px">'
     +'<div><div style="font-size:64px;font-weight:500;letter-spacing:-.04em;line-height:.84">'+esc(sel)+'</div><div style="font-size:14px;color:var(--dim);margin-top:8px">'+esc(co.name)+' · '+DATA.interval.toUpperCase()+' candles</div></div>'
     +'<div style="display:flex;align-items:stretch;border:1px solid var(--line);flex-wrap:wrap">'
@@ -389,7 +392,14 @@ function renderDetail(){ const sel=state.selected; const co=coin(sel); const L=c
     +'<div style="padding:16px 22px;border-right:1px solid var(--line);min-width:150px"><div style="font-size:10px;letter-spacing:.16em;color:var(--dim)">SIGNAL</div><div style="margin-top:8px">'+flagHTML(L.flag)+'</div></div>'
     +'<div style="padding:16px 22px;border-right:1px solid var(--line);min-width:150px"><div style="font-size:10px;letter-spacing:.16em;color:var(--dim)">COMPOSITE</div><div style="font-size:22px;font-weight:600;margin-top:6px">'+colSpan(sgn(L.composite,0),scoreColor(L.composite),22,600)+'</div><div style="margin-top:8px">'+scoreBarHTML(L.composite,7)+'</div></div>'
     +'<div style="padding:16px 22px;border-right:1px solid var(--line);min-width:130px"><div style="font-size:10px;letter-spacing:.16em;color:var(--dim)">CONFIDENCE</div><div style="font-size:22px;font-weight:600;margin-top:8px">'+Math.round(L.confidence*100)+'%</div><div style="margin-top:8px">'+confBarHTML(L.confidence*100)+'</div></div>'
-    +'<div style="padding:16px 22px;min-width:150px"><div style="font-size:10px;letter-spacing:.16em;color:var(--dim)">TRACK RECORD</div><div style="font-size:22px;font-weight:600;margin-top:8px;color:'+(ev.accuracy==null?'var(--dim)':ev.accuracy>=50?'var(--bull)':'var(--bear)')+'">'+(ev.accuracy==null?'—':ev.accuracy+'%')+'</div><div style="font-size:10.5px;color:var(--dim);margin-top:6px">'+(ev.hits||0)+'/'+evScored+' calls right · next '+DATA.evalHorizon+'h</div></div>'
+    +(function(){ const cv=ev.conf||{}; const cScored=(cv.hits||0)+(cv.misses||0); const alt=(ev.alts&&ev.alts[0])||null;
+      const headIsConf=cScored>0; const headAcc=headIsConf?cv.accuracy:ev.accuracy;
+      const col=headAcc==null?'var(--dim)':headAcc>=50?'var(--bull)':'var(--bear)';
+      let sub=headIsConf?((cv.hits||0)+'/'+cScored+' confident calls · all: '+(ev.accuracy==null?'—':ev.accuracy+'%')+' ('+(ev.hits||0)+'/'+evScored+')')
+                        :((ev.hits||0)+'/'+evScored+' calls right · next '+DATA.evalHorizon+'h');
+      let sub2='';
+      if(alt&&(alt.resolved>0||alt.confResolved>0)){ sub2='<div style="font-size:10px;color:var(--dim);margin-top:3px">'+(alt.horizon/24>=1?Math.round(alt.horizon/24)+'d':alt.horizon+'h')+' later: '+(alt.confAccuracy!=null?alt.confAccuracy+'% confident':'')+(alt.confAccuracy!=null&&alt.accuracy!=null?' · ':'')+(alt.accuracy!=null?alt.accuracy+'% all':'—')+'</div>'; }
+      return '<div title="Calls only count once the flag has held '+DATA.evalPersist+' bars; the big number grades the calls the engine itself was confident about (confidence ≥ '+Math.round((DATA.evalConfGate||0)*100)+'% and trend agreement). Hindsight, not a forecast." style="padding:16px 22px;min-width:185px"><div style="font-size:10px;letter-spacing:.16em;color:var(--dim)">TRACK RECORD'+(headIsConf?' · CONFIDENT CALLS':'')+'</div><div style="font-size:22px;font-weight:600;margin-top:8px;color:'+col+'">'+(headAcc==null?'—':headAcc+'%')+'</div><div style="font-size:10.5px;color:var(--dim);margin-top:6px">'+sub+'</div>'+sub2+'</div>'; })()
     +'</div></div>';
   // chart panel
   const rChip=(key,label)=>'<button data-range="'+key+'" style="background:none;border:1px solid '+(state.rangeKey===key?'var(--accent)':'var(--line)')+';color:'+(state.rangeKey===key?'var(--ink)':'var(--dim)')+';font-family:inherit;font-size:10px;font-weight:600;letter-spacing:.14em;padding:5px 11px;cursor:pointer">'+label+'</button>';
@@ -403,7 +413,8 @@ function renderDetail(){ const sel=state.selected; const co=coin(sel); const L=c
     +'<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:11px;height:11px;border:1.4px solid var(--bull);border-radius:50%;display:inline-block"></span>called the shift right</span>'
     +'<span style="display:inline-flex;align-items:center;gap:6px"><span style="color:var(--dim);font-weight:700">✕</span>went the other way</span>'
     +'<span style="display:inline-flex;align-items:center;gap:6px;opacity:.6"><span style="width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:6px solid var(--dim);display:inline-block"></span>too recent to score</span>'
-    +'<span style="margin-left:auto">Scored on price '+DATA.evalHorizon+'h later vs a ±'+DATA.evalBand+'% band · hindsight, not a forecast</span></div>'
+    +'<span style="opacity:.75">bright = confident call · faded = engine doubted it</span>'
+    +'<span style="margin-left:auto">Calls must hold ≥'+DATA.evalPersist+' bars · scored on price '+DATA.evalHorizon+'h later vs a ±'+DATA.evalBand+'% band · hindsight, not a forecast</span></div>'
     +'<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><div style="font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:2px">COMPOSITE SCORE · BUY/SELL THRESHOLDS</div><canvas id="compC" style="width:100%;height:84px;display:block"></canvas></div>'
     +'<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><div><div style="font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:2px">RSI-14 · 30 / 70 BANDS</div><canvas id="rsiC" style="width:100%;height:84px;display:block"></canvas></div><div><div style="font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:2px">CURVATURE · VELOCITY (z) / ACCELERATION (z)</div><canvas id="curvC" style="width:100%;height:84px;display:block"></canvas></div></div></div>';
   // ---- the outlook: what could happen next, from prior observations ----
@@ -647,6 +658,7 @@ function renderScout(){ const sc=DATA.scout; const st=state.scout;
       ol='<span style="color:'+(r.outlook.probUp>=60?'var(--bull)':r.outlook.probUp<=40?'var(--bear)':'var(--ink)')+'">'+r.outlook.probUp.toFixed(0)+'%</span> <span style="color:var(--dim)">higher · '+sgn(r.outlook.median,1)+'%</span> <span title="comparison quality" style="color:'+qc+';font-size:9px;letter-spacing:.08em">'+q[0]+'</span>'; }
     let rec='<span style="color:var(--dim)">—</span>';
     if(r.record&&r.record.accuracy!=null){ const a=r.record.accuracy; rec='<span style="color:'+(a>=50?'var(--bull)':'var(--bear)')+'">'+a.toFixed(0)+'%</span> <span style="color:var(--dim)">('+r.record.hits+'/'+(r.record.hits+r.record.misses)+')</span>'; }
+    if(r.record&&r.record.confAccuracy!=null){ const ch=r.record.confHits||0, cn=ch+(r.record.confMisses||0); rec+='<div style="font-size:10px;color:var(--dim);margin-top:2px">confident: '+r.record.confAccuracy.toFixed(0)+'% ('+ch+'/'+cn+')</div>'; }
     h+='<div class="row-hover" data-scoin="'+esc(r.symbol)+'" style="cursor:pointer;'+SGRID+';padding:13px 20px;border-bottom:1px solid var(--line)">'
       +'<div style="font-size:12px;color:var(--dim)">'+String(i+1).padStart(2,'0')+'</div>'
       +'<div><div style="font-size:15px;font-weight:600;letter-spacing:-.01em">'+esc(r.symbol)+tag+'</div><div style="font-size:11px;color:var(--dim);margin-top:1px">'+esc(r.name||'')+'</div></div>'

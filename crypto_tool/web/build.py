@@ -86,10 +86,22 @@ def _rationale(sig: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
-def signal_eval(tail: pd.DataFrame, horizon: int, band: float) -> Dict[str, Any]:
+def signal_eval(tail: pd.DataFrame, horizon: int, band: float,
+                conf_gate: float = 0.0, persist: int = 1,
+                extra_horizons: List[int] | None = None) -> Dict[str, Any]:
     """Hindsight scorecard: at each bar where a *new* directional call fires
     (the flag flips into BUY/SELL territory), check whether price actually moved
     that way ``horizon`` bars later. A move must clear +/-``band`` % to count.
+
+    Stability rules:
+    * a call only counts once the flag has HELD for ``persist`` bars — a
+      single-bar blip is noise, not a call. It is marked and graded from the
+      bar that confirmed it (still strictly causal).
+    * calls where confidence >= ``conf_gate`` AND the trend regime agreed are
+      *additionally* graded as "confident" — the engine's own filter for which
+      of its calls deserve weight.
+    * ``extra_horizons`` adds summary-only gradings at longer horizons (the
+      per-bar arrays stay on the primary horizon).
 
     Returns per-bar arrays (aligned to ``tail``) plus a summary. This is
     evaluation of PAST calls against what happened next — not a forecast.
@@ -97,41 +109,87 @@ def signal_eval(tail: pd.DataFrame, horizon: int, band: float) -> Dict[str, Any]
     close = [float(x) for x in tail["close"].tolist()]
     flag = [str(x) for x in tail["flag"].tolist()]
     n = len(close)
+    has_conf = "confidence" in tail.columns
+    confs = tail["confidence"].tolist() if has_conf else [None] * n
+    regimes = tail["regime"].tolist() if "regime" in tail.columns else [0] * n
+    persist = max(1, int(persist))
+    extras = [int(h) for h in (extra_horizons or []) if int(h) != horizon]
+
     call: List[str | None] = [None] * n
+    conf_call: List[bool] = [False] * n
     outcome: List[int | None] = [None] * n   # 1 right, -1 wrong, 0 unresolved
     fwd: List[float | None] = [None] * n
-    hits = misses = unresolved = calls = 0
     BULL, BEAR = {"BUY", "STRONG BUY"}, {"SELL", "STRONG SELL"}
-    for i in range(n):
-        f = flag[i]
-        bull, bear = f in BULL, f in BEAR
-        if not (bull or bear):
-            continue
-        prev = flag[i - 1] if i > 0 else "NEUTRAL"
-        if (bull and prev in BULL) or (bear and prev in BEAR):
-            continue                          # only mark the bar the call STARTS
-        calls += 1
-        call[i] = "buy" if bull else "sell"
-        if i + horizon < n:
-            r = (close[i + horizon] / close[i] - 1.0) * 100.0
-            fwd[i] = round(r, 2)
-            if bull:
-                oc = 1 if r >= band else (-1 if r <= -band else 0)
-            else:
-                oc = 1 if r <= -band else (-1 if r >= band else 0)
-            outcome[i] = oc
-            hits += oc == 1
-            misses += oc == -1
-            unresolved += oc == 0
+
+    def dirn(f):
+        return 1 if f in BULL else (-1 if f in BEAR else 0)
+
+    def grade(c: int, bull: bool, h: int):
+        """(outcome, fwd%) for the call confirmed at bar c, at horizon h."""
+        if c + h >= n:
+            return 0, None
+        r = (close[c + h] / close[c] - 1.0) * 100.0
+        if bull:
+            oc = 1 if r >= band else (-1 if r <= -band else 0)
         else:
-            outcome[i] = 0
-            unresolved += 1
-    resolved = hits + misses
+            oc = 1 if r <= -band else (-1 if r >= band else 0)
+        return oc, round(r, 2)
+
+    def bucket():
+        return {"calls": 0, "hits": 0, "misses": 0, "unresolved": 0}
+
+    tally = bucket()
+    conf_tally = bucket()
+    alt_tallies = {h: (bucket(), bucket()) for h in extras}   # (all, confident)
+
+    def count(b, oc):
+        b["calls"] += 1
+        b["hits"] += oc == 1
+        b["misses"] += oc == -1
+        b["unresolved"] += oc == 0
+
+    for i in range(n):
+        d = dirn(flag[i])
+        if d == 0:
+            continue
+        if i > 0 and dirn(flag[i - 1]) == d:
+            continue                          # not the start of this run
+        c = i + persist - 1                   # confirmation bar
+        if c >= n or any(dirn(flag[j]) != d for j in range(i, c + 1)):
+            continue                          # blip died before confirming
+        bull = d == 1
+        call[c] = "buy" if bull else "sell"
+        cv = confs[c]
+        rg = regimes[c] if regimes[c] == regimes[c] else 0
+        confident = (cv is not None and cv == cv and float(cv) >= conf_gate > 0
+                     and (int(rg) >= 0 if bull else int(rg) <= 0))
+        conf_call[c] = bool(confident)
+
+        oc, r = grade(c, bull, horizon)
+        outcome[c], fwd[c] = oc, r
+        count(tally, oc)
+        if confident:
+            count(conf_tally, oc)
+        for h in extras:
+            aoc, _ = grade(c, bull, h)
+            count(alt_tallies[h][0], aoc)
+            if confident:
+                count(alt_tallies[h][1], aoc)
+
+    def acc(b):
+        res = b["hits"] + b["misses"]
+        return round(b["hits"] / res * 100, 1) if res else None
+
     return {
-        "call": call, "outcome": outcome, "fwd": fwd,
-        "summary": {"calls": calls, "hits": hits, "misses": misses,
-                    "unresolved": unresolved, "horizon": horizon, "band": band,
-                    "accuracy": round(hits / resolved * 100, 1) if resolved else None},
+        "call": call, "outcome": outcome, "fwd": fwd, "confCall": conf_call,
+        "summary": {
+            **tally, "horizon": horizon, "band": band, "persist": persist,
+            "accuracy": acc(tally),
+            "conf": {**conf_tally, "gate": conf_gate, "accuracy": acc(conf_tally)},
+            "alts": [{"horizon": h, "accuracy": acc(a), "resolved": a["hits"] + a["misses"],
+                      "confAccuracy": acc(cb), "confResolved": cb["hits"] + cb["misses"]}
+                     for h, (a, cb) in alt_tallies.items()],
+        },
     }
 
 
@@ -166,7 +224,11 @@ def _coin_dict(df: pd.DataFrame, cfg: Dict[str, Any], sym: str,
     sig = signals.latest_signal(df, cfg)
     e = sig["enriched"]
     tail = e.tail(history).reset_index(drop=True)
-    ev = signal_eval(tail, horizon, band)
+    web = cfg.get("web", {})
+    ev = signal_eval(tail, horizon, band,
+                     conf_gate=float(web.get("eval_conf_gate", 0.6)),
+                     persist=int(web.get("eval_persist", 2)),
+                     extra_horizons=[int(web.get("eval_horizon_long", 72))])
     try:
         fc = forecast.project(e, cfg)   # full history -> best analogue pool
     except Exception:  # noqa: BLE001 — the page must never die on the outlook
@@ -183,6 +245,7 @@ def _coin_dict(df: pd.DataFrame, cfg: Dict[str, Any], sym: str,
         "velZ": _arr(tail["vel_z"]), "accZ": _arr(tail["acc_z"]),
         "flag": [str(x) for x in tail["flag"].tolist()],
         "call": ev["call"], "outcome": ev["outcome"], "fwd": ev["fwd"],
+        "confCall": ev["confCall"],
         "eval": ev["summary"], "latest": _latest(e), "rationale": _rationale(sig),
     }
 
@@ -234,6 +297,9 @@ def build_payload(conn, cfg: Dict[str, Any], history: int | None = None) -> Dict
         "lastScan": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
         "evalHorizon": horizon,
         "evalBand": band,
+        "evalConfGate": float(web.get("eval_conf_gate", 0.6)),
+        "evalPersist": int(web.get("eval_persist", 2)),
+        "evalHorizonLong": int(web.get("eval_horizon_long", 72)),
         "names": names,
         "discover": build_discover(cfg, set(names)),
         "scout": database.load_scout(conn),

@@ -82,6 +82,9 @@ DEFAULTS: Dict[str, Any] = {
         "port": 8787,
         "eval_horizon": 24,  # bars ahead used to score a directional call (24 x 1h = 1 day)
         "eval_band": 1.0,    # a move must clear +/- this % to count as right or wrong
+        "eval_persist": 2,   # a flag must HOLD this many bars to count as a call (blip filter)
+        "eval_conf_gate": 0.6,   # calls with confidence >= this AND regime agreement are graded separately
+        "eval_horizon_long": 72,  # second, longer grading horizon (summary only)
         "forecast": {
             "bars": 48,             # how far forward the outlook cone is projected
             "checkpoints": [12, 24, 48],  # stats reported at these steps ahead

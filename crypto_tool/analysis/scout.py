@@ -121,10 +121,14 @@ def _eval_accuracy(e, cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     from ..web.build import signal_eval  # local import: avoid a hard layer dependency
     web = cfg.get("web", {})
     ev = signal_eval(e.reset_index(drop=True),
-                     int(web.get("eval_horizon", 24)), float(web.get("eval_band", 1.0)))
+                     int(web.get("eval_horizon", 24)), float(web.get("eval_band", 1.0)),
+                     conf_gate=float(web.get("eval_conf_gate", 0.6)),
+                     persist=int(web.get("eval_persist", 2)))
     s = ev["summary"]
     return {"accuracy": s["accuracy"], "hits": s["hits"],
-            "misses": s["misses"], "calls": s["calls"]}
+            "misses": s["misses"], "calls": s["calls"],
+            "confAccuracy": s["conf"]["accuracy"],
+            "confHits": s["conf"]["hits"], "confMisses": s["conf"]["misses"]}
 
 
 def run_scout(

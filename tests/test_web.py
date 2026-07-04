@@ -28,6 +28,41 @@ def test_signal_eval_scores_calls():
     assert s["accuracy"] is not None
 
 
+def test_signal_eval_persistence_and_confidence_split():
+    n = 40
+    close = [100.0] * n
+    flag = ["NEUTRAL"] * n
+    flag[5] = "BUY"                        # single-bar blip — must NOT count
+    flag[10] = "BUY"
+    flag[11] = "BUY"                       # held 2 bars — confirmed at bar 11
+    for k in range(11, 25):
+        close[k] = 100.0 + (k - 10)        # rises after the confirmed call
+    df = pd.DataFrame({"close": close, "flag": flag,
+                       "confidence": [0.9] * n, "regime": [1] * n})
+    ev = build.signal_eval(df, horizon=10, band=1.0, conf_gate=0.6, persist=2)
+    assert ev["call"][5] is None           # blip filtered out entirely
+    assert ev["call"][10] is None and ev["call"][11] == "buy"
+    assert ev["confCall"][11] is True
+    s = ev["summary"]
+    assert s["calls"] == 1 and s["hits"] == 1
+    assert s["conf"]["calls"] == 1 and s["conf"]["hits"] == 1
+    # same shape but the engine doubted itself -> graded in "all" only
+    df2 = df.copy()
+    df2["confidence"] = 0.2
+    s2 = build.signal_eval(df2, horizon=10, band=1.0, conf_gate=0.6, persist=2)["summary"]
+    assert s2["calls"] == 1 and s2["conf"]["calls"] == 0
+    # regime disagreement also fails the gate
+    df3 = df.copy()
+    df3["regime"] = -1
+    s3 = build.signal_eval(df3, horizon=10, band=1.0, conf_gate=0.6, persist=2)["summary"]
+    assert s3["conf"]["calls"] == 0
+    # longer second horizon appears as a summary-only grading
+    s4 = build.signal_eval(df, horizon=5, band=1.0, conf_gate=0.6, persist=2,
+                           extra_horizons=[10])["summary"]
+    assert s4["alts"] and s4["alts"][0]["horizon"] == 10
+    assert s4["alts"][0]["resolved"] >= 1
+
+
 def _seed(conn, cfg, n=300):
     for sym in cfg["data"]["symbols"]:
         database.upsert_ohlcv(conn, synthetic.generate_ohlcv(sym, interval=cfg["data"]["interval"], n=n))
@@ -45,8 +80,9 @@ def test_build_payload_shape(tmp_path, cfg):
         c = payload["coins"][sym]
         for k in ["o", "h", "l", "c", "emaF", "emaS", "bbUp", "bbLo", "rsi", "comp",
                   "velZ", "accZ", "flag", "t", "latest", "rationale",
-                  "call", "outcome", "fwd", "eval", "forecast"]:
+                  "call", "outcome", "fwd", "confCall", "eval", "forecast"]:
             assert k in c, k
+        assert "conf" in c["eval"] and "alts" in c["eval"]
         fc = c["forecast"]
         assert fc is not None, "900 bars should be enough history for an outlook"
         assert set(["bands", "checkpoints", "summary", "quality"]).issubset(fc)
