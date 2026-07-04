@@ -170,6 +170,48 @@ def fetch_usdt_symbols(
     return set()
 
 
+def fetch_usdt_pairs(
+    base_urls: Optional[List[str]] = None,
+    timeout: int = 15,
+) -> set:
+    """Return the set of full TRADING USDT spot pair symbols on Binance
+    (e.g. {"BTCUSDT", "ETHUSDT", ...}). Best-effort: empty set on failure."""
+    base_urls = base_urls or ["https://api.binance.com", "https://data-api.binance.vision"]
+    for base in base_urls:
+        try:
+            resp = requests.get(f"{base.rstrip('/')}/api/v3/exchangeInfo", timeout=timeout)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            return {
+                s["symbol"].upper()
+                for s in data.get("symbols", [])
+                if s.get("quoteAsset") == "USDT" and s.get("status") == "TRADING"
+            }
+        except (requests.RequestException, ValueError, KeyError):
+            continue
+    return set()
+
+
+def fetch_all_24h_tickers(
+    base_urls: Optional[List[str]] = None,
+    timeout: int = 30,
+) -> List[dict]:
+    """Fetch the 24h rolling ticker for EVERY pair in one request (weight-heavy
+    but far cheaper than per-symbol calls). Best-effort: empty list on failure."""
+    base_urls = base_urls or ["https://api.binance.com", "https://data-api.binance.vision"]
+    for base in base_urls:
+        try:
+            resp = requests.get(f"{base.rstrip('/')}/api/v3/ticker/24hr", timeout=timeout)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    return data
+        except (requests.RequestException, ValueError):
+            continue
+    return []
+
+
 def fetch_24h_ticker(
     symbol: str,
     base_urls: Optional[List[str]] = None,

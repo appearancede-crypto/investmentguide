@@ -98,6 +98,15 @@ DEFAULTS: Dict[str, Any] = {
         "sort": "momentum",     # momentum | gainers | volume
         "min_volume_usd": 250000,
     },
+    "scout": {
+        # Whole-exchange sweep: run the engine over every liquid Binance USDT
+        # pair and keep the strongest setups.
+        "bars": 400,                    # candles per pair (1 request each)
+        "min_quote_volume_usd": 1_000_000,  # skip pairs with thinner 24h turnover
+        "max_symbols": 300,             # sweep at most this many (most-traded first)
+        "top": 60,                      # rows kept in the snapshot / shown on the page
+        "pause_ms": 60,                 # politeness delay between kline requests
+    },
 }
 
 

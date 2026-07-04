@@ -236,6 +236,8 @@ def build_payload(conn, cfg: Dict[str, Any], history: int | None = None) -> Dict
         "evalBand": band,
         "names": names,
         "discover": build_discover(cfg, set(names)),
+        "scout": database.load_scout(conn),
+        "scoutMin": int(cfg.get("scout", {}).get("active_min") or 0),
         "thresholds": {
             "buy": s["buy_threshold"], "strongBuy": s["strong_buy_threshold"],
             "sell": s["sell_threshold"], "strongSell": s["strong_sell_threshold"],

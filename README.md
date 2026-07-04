@@ -33,6 +33,7 @@ Binance public API.
 | **Test money (web)** | Type in a pretend amount, pick "follow the signals" or "just buy & hold", one coin or all, rewind a week/month/3 months — and see in plain dollars what you'd have, what the other plan would have given, the fees, every trade, and the worst slump you'd have had to sit through. |
 | **Simple mode** | A header toggle (on by default) that adds jargon-free explainer strips to every view, written for someone who has never invested. |
 | **Opportunity scanner** | Ranks all tracked coins so the strongest setups float to the top. |
+| **Coin scout (whole exchange)** | One sweep runs the same engine over **every liquid USDT pair on Binance** (~150–300 pairs clear the turnover floor, most-traded first): score, confidence, each coin's own hindsight track record, a compact outlook, and a CoinGecko risk tag. Stablecoins and leveraged tokens are filtered out. The strongest setups surface in the web UI's SCOUT tab — every row click opens the full deep-dive. Explicitly **not a buy list**. |
 | **Honest backtester** | Replays the engine over history with realistic fees and **next-bar fills (no look-ahead)**, benchmarked against buy-&-hold. |
 | **Exit points** | For any coin you hold: a trailing **chandelier stop**, an ATR **take-profit** target, nearest support/resistance, reward:risk, and a clear **EXIT / TRIM / HOLD** call with reasons. |
 | **Paper trading + learning** | A fictional-money portfolio that allocates virtual capital across the coins by signal, tracks P&L, and *learns from the money made or lost* by tilting rule weights toward what's been profitable — shown side-by-side with a static baseline so you can see if it actually helped. |
@@ -67,6 +68,7 @@ python -m crypto_tool.cli scan [--json]     # ranked latest-signal table
 python -m crypto_tool.cli backtest BTCUSDT [--json]
 python -m crypto_tool.cli exits [SYMBOL]    # exit guidance (all coins, or one)
 python -m crypto_tool.cli outlook [SYMBOL]  # what happened after similar past moments
+python -m crypto_tool.cli scout             # sweep EVERY liquid Binance USDT pair
 python -m crypto_tool.cli coverage          # what's stored in the DB
 
 # Paper trading with fictional money
@@ -104,6 +106,25 @@ qualifies if its entire forward window was already observed — strictly causal.
 Configured under `web.forecast` in `config.yaml`. It is a **tally of the past,
 not a forecast of the future** — the page repeats this wherever the cone
 appears.
+
+## The coin scout — the whole exchange, not just your watchlist
+
+`python -m crypto_tool.cli scout` (or the web UI's **SCOUT** tab) answers "am I
+missing something?": one sweep pulls the 24h ticker for **every pair on
+Binance** in a single request, keeps the real, liquid spot markets (stablecoins,
+leveraged tokens and thin pairs are dropped), fetches a few hundred candles for
+each — most-traded first — and runs the exact same 7-rule engine on all of
+them. Each row carries the score, confidence, the coin's own **hindsight track
+record** over the swept window, a compact **outlook** where history allows one,
+and a **risk tier** from CoinGecko market data. Clicking a row in the web UI
+opens the full deep-dive (charts, cone, reasoning) even for coins you don't
+track.
+
+Serve with `--scout-min 60` to re-sweep automatically in the background, and
+tune `scout:` in `config.yaml` (volume floor, sweep size, rows kept). Honest
+framing, as everywhere: these are the setups **the rules score highest** — the
+same rules that are sometimes wrong, on coins where the risk tag matters more
+than the rank. Not a buy list.
 
 ## Test money — "what would I have made?"
 

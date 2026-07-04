@@ -36,6 +36,7 @@ _PAGE_TTL = float(os.environ.get("PAGE_CACHE_TTL", "45"))
 _COIN_TTL = float(os.environ.get("COIN_CACHE_TTL", "120"))
 _COIN_MAX = int(os.environ.get("COIN_CACHE_MAX", "48"))   # bound deep-dive cache RAM
 _page = {"ts": 0.0, "body": None}      # type: Dict[str, Any]
+_SCOUT_MIN = {"v": 0}                  # active background-sweep cadence (0 = off)
 _coins: Dict[str, tuple] = {}
 _page_lock = threading.Lock()
 _build_lock = threading.Lock()
@@ -53,6 +54,7 @@ def _get_page(config_path) -> bytes:
         if _page["body"] is not None and now - _page["ts"] < _PAGE_TTL:
             return _page["body"]
         cfg = load_config(config_path)
+        cfg.setdefault("scout", {})["active_min"] = _SCOUT_MIN["v"]
         conn = database.connect(resolve_db_path(cfg))
         try:
             body = build.build_page(conn, cfg).encode("utf-8")
@@ -103,6 +105,9 @@ def _make_handler(config_path: Optional[str]):
             if path == "/api/coin":
                 self._serve_coin(config_path)
                 return
+            if path == "/api/scout":
+                self._serve_scout(config_path)
+                return
             if path not in _ROUTES:
                 self._send(404, b"Not found", "text/plain")
                 return
@@ -110,6 +115,21 @@ def _make_handler(config_path: Optional[str]):
                 self._send(200, _get_page(config_path), "text/html; charset=utf-8")
             except Exception as exc:  # noqa: BLE001 — surface errors in the browser
                 self._send(500, f"Error building page: {exc}".encode("utf-8"), "text/plain")
+
+        def _serve_scout(self, config_path):
+            try:
+                cfg = load_config(config_path)
+                conn = database.connect(resolve_db_path(cfg))
+                try:
+                    snap = database.load_scout(conn)
+                finally:
+                    conn.close()
+                self._send(200, json.dumps({"ok": True, "scout": snap},
+                                           allow_nan=False).encode("utf-8"),
+                           "application/json")
+            except Exception as exc:  # noqa: BLE001
+                self._send(200, json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"),
+                           "application/json")
 
         def _serve_coin(self, config_path):
             symbol = (parse_qs(urlparse(self.path).query).get("symbol") or [""])[0].upper()
@@ -160,6 +180,30 @@ def _ensure_data(cfg: Dict[str, Any], ingest_limit: Optional[int]):
         conn.close()
 
 
+def _scout_loop(cfg: Dict[str, Any], minutes: int):
+    """Background whole-exchange sweep. Runs immediately when the stored
+    snapshot is missing/stale, then repeats every ``minutes``."""
+    from ..analysis import scout
+    while True:
+        try:
+            conn = database.connect(resolve_db_path(cfg))
+            try:
+                snap = database.load_scout(conn)
+                stale = (snap is None
+                         or time.time() * 1000 - snap.get("asOfMs", 0) > minutes * 60_000)
+                if stale:
+                    print("Scout sweep starting (whole-exchange scan) …")
+                    snap = scout.run_and_save(conn, cfg)
+                    _bust_page_cache()
+                    print(f"Scout sweep done: {snap['scored']} pairs scored, "
+                          f"kept top {len(snap['rows'])}.")
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            print(f"Scout sweep failed (will retry): {exc}")
+        time.sleep(max(5.0, minutes * 60 / 10.0))   # re-check staleness often; sweep when due
+
+
 def _refresh_loop(cfg: Dict[str, Any], minutes: int, ingest_limit: Optional[int]):
     while True:
         time.sleep(minutes * 60)
@@ -178,7 +222,7 @@ def _refresh_loop(cfg: Dict[str, Any], minutes: int, ingest_limit: Optional[int]
 def serve(cfg: Dict[str, Any], config_path: Optional[str] = None,
           port: Optional[int] = None, open_browser: bool = True,
           ensure_data: bool = False, refresh_min: int = 0,
-          ingest_limit: Optional[int] = None) -> None:
+          ingest_limit: Optional[int] = None, scout_min: int = 0) -> None:
     port = int(port or os.environ.get("PORT") or cfg.get("web", {}).get("port", 8787))
 
     if ensure_data:
@@ -187,6 +231,10 @@ def serve(cfg: Dict[str, Any], config_path: Optional[str] = None,
         threading.Thread(target=_refresh_loop, args=(cfg, refresh_min, ingest_limit),
                          daemon=True).start()
         print(f"Background data refresh every {refresh_min} min.")
+    if scout_min and scout_min > 0:
+        _SCOUT_MIN["v"] = int(scout_min)
+        threading.Thread(target=_scout_loop, args=(cfg, scout_min), daemon=True).start()
+        print(f"Background whole-exchange scout sweep every {scout_min} min.")
 
     httpd = ThreadingHTTPServer(("0.0.0.0", port), _make_handler(config_path))
     print(f"Signal Engine serving on 0.0.0.0:{port}  ·  page cache {int(_PAGE_TTL)}s   (Ctrl-C to stop)")

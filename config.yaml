@@ -103,6 +103,17 @@ paper:
     lr: 0.25              # EMA step toward the freshly-scored target weights (0..1)
     min_obs: 100          # don't update weights on fewer live bars than this (thin sample)
 
+scout:
+  # Whole-exchange coin scout: one sweep runs the same 7-rule engine over every
+  # liquid USDT pair on Binance (most-traded first) and keeps the strongest
+  # setups. Run it with `python -m crypto_tool.cli scout`, or serve the web UI
+  # with `--scout-min 60` to refresh it automatically in the background.
+  bars: 400                   # candles fetched per pair (one request each)
+  min_quote_volume_usd: 1000000   # skip pairs with less 24h turnover than this
+  max_symbols: 300            # cap the sweep at the N most-traded pairs
+  top: 60                     # strongest rows kept & shown
+  pause_ms: 60                # politeness delay between requests
+
 web:
   # The Outlook cone: "when this coin looked like it does right now, what
   # happened next?" — K-nearest-neighbour analogues over this coin's own past,

@@ -21,6 +21,8 @@ RUN mkdir -p data
 EXPOSE 8787
 
 # On boot: ingest candles if the DB is empty (1500/coin keeps cold starts quick),
-# then serve and refresh the data every 20 minutes.
+# then serve, refresh the data every 20 minutes, and re-run the whole-exchange
+# coin scout every 60 minutes.
 CMD ["python", "-m", "crypto_tool.cli", "web", "--serve", "--no-open", \
-     "--ensure-data", "--ingest-limit", "1500", "--refresh-min", "20"]
+     "--ensure-data", "--ingest-limit", "1500", "--refresh-min", "20", \
+     "--scout-min", "60"]

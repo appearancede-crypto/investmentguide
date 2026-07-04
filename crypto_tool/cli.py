@@ -150,6 +150,56 @@ def cmd_exits(cfg, args, conn) -> int:
     return 0
 
 
+def cmd_scout(cfg, args, conn) -> int:
+    from .analysis import scout
+    if args.max:
+        cfg = {**cfg, "scout": {**cfg["scout"], "max_symbols": int(args.max)}}
+    if args.top:
+        cfg = {**cfg, "scout": {**cfg["scout"], "top": int(args.top)}}
+
+    # Progress/banner go to stderr so `scout --json > snap.json` stays pure JSON.
+    def progress(i, n, sym):
+        if i == 1 or i % 25 == 0 or i == n:
+            print(f"  scanning {i}/{n}  {sym:<14}", end="\r", flush=True, file=sys.stderr)
+
+    print("Coin scout: sweeping every liquid USDT pair on Binance "
+          f"(top {cfg['scout']['max_symbols']} by turnover, "
+          f"≥ ${cfg['scout']['min_quote_volume_usd']:,.0f} 24h volume) …", file=sys.stderr)
+    snap = scout.run_and_save(conn, cfg, progress=progress)
+    print(" " * 60, end="\r", file=sys.stderr)
+    if args.json:
+        print(json.dumps(snap, indent=2))
+        return 0
+
+    print("\n" + "!" * 96)
+    print("  COIN SCOUT — the engine's strongest setups across the exchange. The same rules as the")
+    print("  scanner, which are sometimes wrong; risk tags matter more than rank. NOT a buy list.")
+    print("!" * 96)
+    print(f"\nScored {snap['scored']} of {snap['eligible']} eligible pairs "
+          f"({snap['exchangePairs']} on the exchange) · {snap['asOf']} · "
+          f"showing top {len(snap['rows'])}\n")
+    header = (f"{'#':>2}  {'SYMBOL':<12}{'PRICE':>11}  {'24H%':>7}  {'SCORE':>6}  "
+              f"{'CONF':>5}  {'FLAG':<11} {'OUTLOOK+24H':<13} {'RECORD':<13} RISK")
+    print(header)
+    print("-" * max(len(header), 104))
+    for i, r in enumerate(snap["rows"], 1):
+        ol = "—"
+        if r["outlook"]:
+            ol = f"{r['outlook']['probUp']:.0f}%↑ {r['outlook']['median']:+.1f}%"
+        rec = "—"
+        if r["record"] and r["record"]["accuracy"] is not None:
+            rc = r["record"]
+            rec = f"{rc['accuracy']:.0f}% ({rc['hits']}/{rc['hits'] + rc['misses']})"
+        p24 = f"{r['p24h']:+.1f}" if r["p24h"] is not None else "—"
+        print(f"{i:>2}  {r['symbol']:<12}{(r['price'] or 0):>11.4g}  {p24:>7}  "
+              f"{r['composite']:>6.1f}  {r['confidence']:>5.1f}  {r['flag']:<11} "
+              f"{ol:<13} {rec:<13} {r['risk']}")
+    print("\nSaved to the database — the web UI's SCOUT tab shows this snapshot. "
+          "Click any row there for the full deep-dive.")
+    print(f"\n{DISCLAIMER}")
+    return 0
+
+
 def cmd_outlook(cfg, args, conn) -> int:
     from .analysis import forecast
     interval = cfg["data"]["interval"]
@@ -264,7 +314,8 @@ def cmd_web(cfg, args, conn) -> int:
         from .web import server as webserver
         webserver.serve(cfg, config_path=args.config, port=args.port,
                         open_browser=not args.no_open, ensure_data=args.ensure_data,
-                        refresh_min=args.refresh_min, ingest_limit=args.ingest_limit)
+                        refresh_min=args.refresh_min, ingest_limit=args.ingest_limit,
+                        scout_min=args.scout_min)
         return 0
     html = webbuild.build_page(conn, cfg)
     out = os.path.join(os.path.dirname(resolve_db_path(cfg)), "signal_engine.html")
@@ -429,8 +480,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Re-ingest candles every N minutes in the background (0 = off)")
     wb.add_argument("--ingest-limit", type=int, default=None,
                     help="Candles per coin for boot/background ingest (smaller = faster cold start)")
+    wb.add_argument("--scout-min", type=int, default=0,
+                    help="Run the whole-exchange coin scout every N minutes in the background (0 = off)")
     ex = sub.add_parser("exits", help="Exit guidance (trailing stop, take-profit, action)")
     ex.add_argument("symbol", nargs="?", default=None, help="One symbol, or omit for all")
+    st = sub.add_parser("scout",
+                        help="Sweep every liquid Binance USDT pair with the engine (NOT a buy list)")
+    st.add_argument("--max", type=int, default=None, help="Sweep at most N pairs (most-traded first)")
+    st.add_argument("--top", type=int, default=None, help="Rows kept/shown")
+    st.add_argument("--json", action="store_true")
     ol = sub.add_parser("outlook",
                         help="What happened after similar past moments (a tally of the past, not a forecast)")
     ol.add_argument("symbol", nargs="?", default=None, help="One symbol, or omit for all")
@@ -475,6 +533,7 @@ def main(argv=None) -> int:
         "web": cmd_web,
         "exits": cmd_exits,
         "outlook": cmd_outlook,
+        "scout": cmd_scout,
         "discover": cmd_discover,
         "paper-open": cmd_paper_open,
         "paper-run": cmd_paper_run,

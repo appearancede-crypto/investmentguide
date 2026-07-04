@@ -97,6 +97,7 @@ let state = { view:'scanner', selected:(DATA.names[0]||null), rangeKey:'7D',
               theme: (DATA.theme||'carbon'), bt:{...DATA.backtestDefaults},
               discoverSort: (DATA.discover&&DATA.discover.sort)||'momentum',
               simple:true,
+              scout:{ filter:'all', risk:'any', sort:'score' },
               inv:{ amount:1000, mode:'signals', scope:'coin', period:'1M' } };
 let win = { count:168, endOffset:0 };
 let hoverI = null;
@@ -598,6 +599,74 @@ function renderBacktest(){ const sel=state.selected; const co=coin(sel); const b
   eqC=document.getElementById('eqC'); drawAll();
 }
 
+// ---------- scout: the engine swept across the whole exchange ----------
+const SGRID='display:grid;grid-template-columns:30px 1.25fr 0.78fr 0.5fr 1.35fr 0.48fr 0.95fr 0.72fr 0.75fr;align-items:center;gap:12px';
+const SSORTS=[['score','SIGNAL SCORE'],['outlook','OUTLOOK'],['move','24H MOVE'],['volume','VOLUME']];
+function scoutRows(){ const sc=DATA.scout; if(!sc||!sc.rows) return [];
+  const st=state.scout; let rows=sc.rows.slice();
+  if(st.filter==='buys') rows=rows.filter(r=>r.flag==='BUY'||r.flag==='STRONG BUY');
+  if(st.risk==='noextreme') rows=rows.filter(r=>r.risk!=='EXTREME');
+  const key= st.sort==='outlook'?(r=>r.outlook?r.outlook.probUp:-1)
+           : st.sort==='move'?(r=>r.p24h==null?-1e9:r.p24h)
+           : st.sort==='volume'?(r=>r.quoteVolume||0)
+           : (r=>r.composite*1000+r.confidence);
+  rows.sort((a,b)=>key(b)-key(a)); return rows; }
+function renderScout(){ const sc=DATA.scout; const st=state.scout;
+  let h='<section><div style="font-size:10px;font-weight:500;letter-spacing:.2em;color:var(--dim);margin-bottom:16px">05 — COIN SCOUT · THE WHOLE EXCHANGE</div>';
+  h+='<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:18px"><div>'
+    +'<div style="font-size:42px;font-weight:500;letter-spacing:-.035em;line-height:.9">The scout.</div>'
+    +'<div style="font-size:14.5px;color:var(--dim);max-width:620px;margin-top:14px;line-height:1.55">The same 7 rules as the scanner, swept across <span style="color:var(--ink)">every liquid USDT pair on Binance</span> — most-traded first — so the strongest setups anywhere on the exchange surface here, not just on your watchlist.</div></div>'
+    +(sc?'<div style="text-align:right;flex:none"><div style="font-size:10px;letter-spacing:.18em;color:var(--dim)">LAST SWEEP</div><div style="font-size:13px;margin-top:6px">'+esc(sc.asOf||'—')+'</div><div style="font-size:10.5px;color:var(--dim);margin-top:4px">'+sc.scored+' of '+sc.eligible+' pairs scored · '+sc.exchangePairs+' on exchange</div></div>':'')+'</div>';
+  h+='<div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:18px;padding:14px 18px;border:1px solid var(--warn);background:var(--panel)"><div style="width:4px;align-self:stretch;background:var(--warn);flex:none"></div><div style="font-size:12.5px;color:var(--ink);line-height:1.55;opacity:.94"><b style="color:var(--warn);letter-spacing:.08em">A PLACE TO START READING — NOT A BUY LIST.</b> These rows are where the engine’s rules score highest right now. The same rules are regularly wrong, strong-looking setups fail all the time, and the smaller the coin the harder it fails. Read the risk tag before the rank. Not financial advice.</div></div>';
+  if(!sc){ h+=(DATA.scoutMin>0
+      ?'<div style="padding:26px;border:1px solid var(--line);background:var(--panel);font-size:13px;color:var(--dim);line-height:1.7">The first background sweep is running (every '+DATA.scoutMin+' min) — reload this page in a minute or two.</div>'
+      :'<div style="padding:26px;border:1px solid var(--line);background:var(--panel);font-size:13px;color:var(--dim);line-height:1.7">No sweep stored yet. Run <span style="color:var(--ink);font-family:monospace">python -m crypto_tool.cli scout</span> once (about a minute), then rebuild or reload this page — or serve with <span style="color:var(--ink);font-family:monospace">--scout-min 60</span> to keep it fresh automatically.</div>')+'</section>'; MAIN.innerHTML=h; return; }
+  // Column label follows the data: the outlook checkpoint is measured in bars,
+  // not literally "24h" (a 12-bar fallback exists on short histories).
+  const oh=((sc.rows||[]).map(r=>r.outlook&&r.outlook.hours).find(v=>v!=null));
+  const olLabel=oh!=null?('OUTLOOK +'+Math.round(oh)+'H'):'OUTLOOK';
+  h+=explain('The scanner watches the '+DATA.markets+' coins you track; the scout looks at the whole exchange. Every liquid coin gets the same score from −100 to +100, plus: <b>'+olLabel+'</b> — in past moments that looked like this coin’s right-now, how often price was higher that far ahead (a tally of the past, not a prediction); <b>RECORD</b> — how often this coin’s own buy/sell calls played out in hindsight over the swept window. Click any row to open the full chart, cone and reasoning for that coin.');
+  const ageH=(Date.now()-(sc.asOfMs||0))/3600000;
+  const staleThresh=Math.max(2,((DATA.scoutMin||0)/60)*2);
+  if(sc.asOfMs&&ageH>staleThresh){ h+='<div style="font-size:12px;color:var(--dim);margin-bottom:14px">This sweep is '+(ageH<48?Math.round(ageH)+' hours':Math.round(ageH/24)+' days')+' old — markets have moved since. '+(DATA.scoutMin>0?'Reload this page for the latest sweep (background sweeps run every '+DATA.scoutMin+' min).':'Re-run <span style="color:var(--ink);font-family:monospace">python -m crypto_tool.cli scout</span> (or serve with <span style="color:var(--ink);font-family:monospace">--scout-min 60</span>) for a fresh read.')+'</div>'; }
+  const chip=(attr,val,on,label)=>'<button '+attr+'="'+val+'" style="background:none;border:1px solid '+(on?'var(--accent)':'var(--line)')+';color:'+(on?'var(--ink)':'var(--dim)')+';font-family:inherit;font-size:10px;font-weight:600;letter-spacing:.12em;padding:6px 12px;cursor:pointer">'+label+'</button>';
+  h+='<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">'
+    +chip('data-sfilter','all',st.filter==='all','ALL SIGNALS')+chip('data-sfilter','buys',st.filter==='buys','BUY SIGNALS ONLY')
+    +'<span style="width:10px"></span>'
+    +chip('data-srisk','any',st.risk==='any','ANY RISK')+chip('data-srisk','noextreme',st.risk==='noextreme','HIDE EXTREME RISK')
+    +'<span style="margin-left:auto;display:flex;gap:8px;align-items:center"><span style="font-size:10px;letter-spacing:.14em;color:var(--dim)">SORT</span>'
+    +SSORTS.map(p=>chip('data-ssort',p[0],st.sort===p[0],p[1])).join('')+'</span></div>';
+  const rows=scoutRows();
+  h+='<div style="position:relative;border:1px solid var(--line);background:var(--panel)">'+bracket();
+  h+='<div style="'+SGRID+';padding:12px 20px;border-bottom:1px solid var(--line);font-size:10px;font-weight:500;letter-spacing:.14em;color:var(--dim)"><div>#</div><div>MARKET</div><div>PRICE</div><div>24H</div><div>SIGNAL SCORE</div><div>CONF</div><div title="share of past moments that looked like this coin’s right-now where price was higher this far ahead — a past tally, not a prediction">'+olLabel+'</div><div title="how this coin’s own buy/sell calls graded in hindsight over the swept window">RECORD</div><div>RISK</div></div>';
+  if(!(sc.rows||[]).length){ h+='<div style="padding:22px;font-size:13px;color:var(--dim)">This sweep scored no pairs ('+(sc.errors||0)+' errors of '+(sc.eligible||0)+' eligible) — the exchange may have been unreachable. Re-run <span style="color:var(--ink);font-family:monospace">python -m crypto_tool.cli scout</span>.</div>'; }
+  else if(!rows.length){ h+='<div style="padding:22px;font-size:13px;color:var(--dim)">Nothing matches these filters right now — which is an honest answer. Loosen a filter, or come back after the next sweep.</div>'; }
+  rows.forEach((r,i)=>{ const tag=r.tracked?'<span title="on your watchlist" style="color:var(--accent);font-size:11px"> ★</span>':'';
+    let ol='<span style="color:var(--dim)">—</span>';
+    if(r.outlook){ const q=r.outlook.quality; const qc=q==='HIGH'?'var(--ink)':q==='MEDIUM'?'var(--warn)':'var(--dim)';
+      ol='<span style="color:'+(r.outlook.probUp>=60?'var(--bull)':r.outlook.probUp<=40?'var(--bear)':'var(--ink)')+'">'+r.outlook.probUp.toFixed(0)+'%</span> <span style="color:var(--dim)">higher · '+sgn(r.outlook.median,1)+'%</span> <span title="comparison quality" style="color:'+qc+';font-size:9px;letter-spacing:.08em">'+q[0]+'</span>'; }
+    let rec='<span style="color:var(--dim)">—</span>';
+    if(r.record&&r.record.accuracy!=null){ const a=r.record.accuracy; rec='<span style="color:'+(a>=50?'var(--bull)':'var(--bear)')+'">'+a.toFixed(0)+'%</span> <span style="color:var(--dim)">('+r.record.hits+'/'+(r.record.hits+r.record.misses)+')</span>'; }
+    h+='<div class="row-hover" data-scoin="'+esc(r.symbol)+'" style="cursor:pointer;'+SGRID+';padding:13px 20px;border-bottom:1px solid var(--line)">'
+      +'<div style="font-size:12px;color:var(--dim)">'+String(i+1).padStart(2,'0')+'</div>'
+      +'<div><div style="font-size:15px;font-weight:600;letter-spacing:-.01em">'+esc(r.symbol)+tag+'</div><div style="font-size:11px;color:var(--dim);margin-top:1px">'+esc(r.name||'')+'</div></div>'
+      +'<div style="font-size:13px">'+fmtPrice(r.price)+'</div>'
+      +'<div style="font-size:12.5px">'+pctCell(r.p24h)+'</div>'
+      +'<div><div style="display:flex;align-items:center;gap:10px"><div style="flex:1">'+scoreBarHTML(r.composite,7)+'</div><div style="width:36px;text-align:right">'+colSpan(sgn(r.composite,0),scoreColor(r.composite),13,600)+'</div></div><div style="margin-top:4px;font-size:9.5px;font-weight:600;letter-spacing:.08em;color:'+flagColor(r.flag)+'">'+esc(r.flag)+'</div></div>'
+      +'<div style="font-size:12.5px;color:var(--dim)">'+r.confidence.toFixed(0)+'%</div>'
+      +'<div style="font-size:11.5px">'+ol+'</div>'
+      +'<div style="font-size:11.5px">'+rec+'</div>'
+      +'<div><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.04em;color:'+riskColor(r.risk)+'"><span style="width:8px;height:8px;background:'+riskColor(r.risk)+';flex:none"></span>'+esc(r.risk)+'</span><div style="font-size:10px;color:var(--dim);margin-top:2px;line-height:1.3">'+esc((r.riskFlags||[]).slice(0,1).join(''))+'</div></div>'
+      +'</div>'; });
+  h+='</div>';
+  h+='<div style="display:flex;gap:24px;margin-top:14px;font-size:11px;color:var(--dim);letter-spacing:.03em;flex-wrap:wrap"><span><span style="color:var(--accent)">★</span> already on your watchlist</span><span>OUTLOOK = tally of look-alike past moments · RECORD = hindsight grade — neither predicts anything</span><span>OUTLOOK letter = comparison quality (H/M/L) — short sweep history makes most of these L or M</span><span style="margin-left:auto">Click any row for full charts, cone &amp; reasoning</span></div></section>';
+  MAIN.innerHTML=h;
+  MAIN.querySelectorAll('[data-sfilter]').forEach(el=>el.addEventListener('click',()=>{ state.scout.filter=el.getAttribute('data-sfilter'); render(); }));
+  MAIN.querySelectorAll('[data-srisk]').forEach(el=>el.addEventListener('click',()=>{ state.scout.risk=el.getAttribute('data-srisk'); render(); }));
+  MAIN.querySelectorAll('[data-ssort]').forEach(el=>el.addEventListener('click',()=>{ state.scout.sort=el.getAttribute('data-ssort'); render(); }));
+  MAIN.querySelectorAll('[data-scoin]').forEach(el=>el.addEventListener('click',()=>{ openCoin(el.getAttribute('data-scoin')); }));
+}
+
 // ---------- discover ----------
 function fmtBig(v){ if(v==null) return '—'; const a=Math.abs(v); if(a>=1e9) return '$'+(v/1e9).toFixed(1)+'B'; if(a>=1e6) return '$'+(v/1e6).toFixed(1)+'M'; if(a>=1e3) return '$'+(v/1e3).toFixed(0)+'K'; return '$'+v.toFixed(0); }
 function pctCell(v){ if(v==null) return '<span style="color:var(--dim)">—</span>'; return '<span style="color:'+(v>=0?'var(--bull)':'var(--bear)')+'">'+sgn(v,1)+'%</span>'; }
@@ -607,16 +676,19 @@ const DGRID='display:grid;grid-template-columns:34px 1.25fr 0.95fr 0.55fr 0.6fr 
 function discoverSorted(){ const rows=(DATA.discover&&DATA.discover.rows)||[]; const k=state.discoverSort;
   const key=k==='gainers'?(r=>r.p24h==null?-1e9:r.p24h):k==='volume'?(r=>r.turnover||0):(r=>r.momentum==null?-1e9:r.momentum);
   return rows.slice().sort((a,b)=>key(b)-key(a)); }
+let openSeq=0;   // invalidates in-flight deep-dive fetches once the user navigates on
 function openCoin(sym){ if(!sym) return; if(DATA.coins[sym]){ state.selected=sym; setView('detail'); return; }
+  const tok=++openSeq;
   showDeepLoading(sym);
   fetch('/api/coin?symbol='+encodeURIComponent(sym)).then(function(r){return r.json();}).then(function(j){
+    if(tok!==openSeq) return;
     if(j&&j.ok&&j.coin){ DATA.coins[sym]=j.coin; if(DATA.names.indexOf(sym)<0) DATA.names.push(sym); state.selected=sym; setView('detail'); }
     else { deepError(sym,(j&&j.error)||'no candle data available'); }
-  }).catch(function(){ deepError(sym,'live deep-dive needs the served app — run:  python -m crypto_tool.cli web --serve'); }); }
+  }).catch(function(){ if(tok!==openSeq) return; deepError(sym,'live deep-dive needs the served app — run:  python -m crypto_tool.cli web --serve'); }); }
 function showDeepLoading(sym){ MAIN.innerHTML='<section><div style="padding:90px 0;text-align:center;color:var(--dim)"><div style="font-size:13px;letter-spacing:.18em">FETCHING '+esc(sym)+' FROM BINANCE …</div><div style="margin-top:12px;font-size:11px;letter-spacing:.06em">running the full signal engine + hindsight scorecard</div></div></section>'; }
-function deepError(sym,msg){ MAIN.innerHTML='<section><div style="padding:70px 0;text-align:center"><div style="font-size:14px;color:var(--bear);letter-spacing:.04em">Could not open '+esc(sym)+'</div><div style="margin-top:10px;font-size:12px;color:var(--dim);max-width:480px;margin:10px auto 0;line-height:1.5">'+esc(msg)+'</div><div style="margin-top:20px"><button id="backDisc" style="background:none;border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:11px;letter-spacing:.14em;padding:8px 16px;cursor:pointer">← BACK TO DISCOVER</button></div></div></section>'; const b=document.getElementById('backDisc'); if(b) b.addEventListener('click',function(){ setView('discover'); }); }
+function deepError(sym,msg){ MAIN.innerHTML='<section><div style="padding:70px 0;text-align:center"><div style="font-size:14px;color:var(--bear);letter-spacing:.04em">Could not open '+esc(sym)+'</div><div style="margin-top:10px;font-size:12px;color:var(--dim);max-width:480px;margin:10px auto 0;line-height:1.5">'+esc(msg)+'</div><div style="margin-top:20px"><button id="backBtn" style="background:none;border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:11px;letter-spacing:.14em;padding:8px 16px;cursor:pointer">← BACK</button></div></div></section>'; const b=document.getElementById('backBtn'); if(b) b.addEventListener('click',function(){ setView(state.view); }); }
 function renderDiscover(){ const disc=DATA.discover||{rows:[],error:'no data',count:0};
-  let h='<section><div style="font-size:10px;font-weight:500;letter-spacing:.2em;color:var(--dim);margin-bottom:16px">05 — DISCOVER · MARKET MOVERS (HIGH RISK)</div>';
+  let h='<section><div style="font-size:10px;font-weight:500;letter-spacing:.2em;color:var(--dim);margin-bottom:16px">06 — DISCOVER · MARKET MOVERS (HIGH RISK)</div>';
   h+='<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:18px"><div>'
     +'<div style="font-size:42px;font-weight:500;letter-spacing:-.035em;line-height:.9">The movers.</div>'
     +'<div style="font-size:14.5px;color:var(--dim);max-width:600px;margin-top:14px;line-height:1.55">Scanned the top '+(disc.count||0)+' coins by market cap across the whole market (via CoinGecko). These are what is moving right now — which is also the riskiest end of crypto.</div></div>'
@@ -646,9 +718,9 @@ function renderDiscover(){ const disc=DATA.discover||{rows:[],error:'no data',co
 }
 
 // ---------- shell / nav / theme ----------
-function setView(v){ state.view=v; hoverI=null; render(); }
+function setView(v){ openSeq++; state.view=v; hoverI=null; render(); }
 function markNav(){ document.querySelectorAll('[data-view]').forEach(b=>{ const on=b.getAttribute('data-view')===state.view; b.querySelector('.ind').style.opacity=on?'1':'0'; }); }
-function mountNav(){ const items=[['scanner','SCANNER'],['detail','COIN DETAIL'],['invest','TEST MONEY'],['backtest','BACKTEST'],['discover','DISCOVER']];
+function mountNav(){ const items=[['scanner','SCANNER'],['detail','COIN DETAIL'],['invest','TEST MONEY'],['backtest','BACKTEST'],['scout','SCOUT'],['discover','DISCOVER']];
   NAV.innerHTML=items.map(([v,l])=>'<button data-view="'+v+'" style="position:relative;background:none;border:none;color:var(--ink);font-family:inherit;font-size:11px;font-weight:600;letter-spacing:.18em;padding:8px 16px;cursor:pointer">'+l+'<div class="ind" style="position:absolute;left:8px;right:8px;bottom:-2px;height:2px;background:var(--accent);opacity:0"></div></button>').join('');
   NAV.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.getAttribute('data-view'))));
 }
@@ -656,7 +728,7 @@ function mountThemes(){ const sw=document.getElementById('themeSwitch'); const s
   sw.innerHTML=THEMES.map(t=>'<button data-theme-btn="'+t+'" title="'+t+'" style="width:14px;height:14px;border-radius:50%;border:1px solid var(--line);background:'+swatch[t]+';cursor:pointer;padding:0;outline:'+(state.theme===t?'2px solid var(--ink)':'none')+';outline-offset:1px"></button>').join('');
   sw.querySelectorAll('[data-theme-btn]').forEach(b=>b.addEventListener('click',()=>{ state.theme=b.getAttribute('data-theme-btn'); ROOT.dataset.theme=state.theme; mountThemes(); drawAll(); }));
 }
-function render(){ if(state.view==='scanner') renderScanner(); else if(state.view==='detail') renderDetail(); else if(state.view==='invest') renderInvest(); else if(state.view==='backtest') renderBacktest(); else renderDiscover(); markNav(); }
+function render(){ if(state.view==='scanner') renderScanner(); else if(state.view==='detail') renderDetail(); else if(state.view==='invest') renderInvest(); else if(state.view==='backtest') renderBacktest(); else if(state.view==='scout') renderScout(); else renderDiscover(); markNav(); }
 
 function init(){ ROOT.dataset.theme=state.theme; document.getElementById('mktLine').textContent='BINANCE · '+DATA.interval.toUpperCase(); document.getElementById('mktCount').textContent=DATA.markets+' MARKETS';
   const sb=document.getElementById('simpleBtn'); if(sb){ sb.addEventListener('click',()=>{ state.simple=!state.simple; markSimpleBtn(); render(); }); markSimpleBtn(); }

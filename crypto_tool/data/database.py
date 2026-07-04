@@ -97,6 +97,12 @@ CREATE TABLE IF NOT EXISTS paper_weight (
     weights TEXT,
     PRIMARY KEY (name, ts)
 );
+
+CREATE TABLE IF NOT EXISTS scout_snapshot (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    snapshot   TEXT,
+    created_ms INTEGER
+);
 """
 
 
@@ -235,6 +241,30 @@ def latest_signals(conn: sqlite3.Connection, interval: Optional[str] = None) -> 
         "GROUP BY symbol, interval" + join_tail
     )
     return pd.read_sql_query(query, conn)
+
+
+# --------------------------------------------------------------------------- #
+# Scout snapshot (single-row: the latest whole-exchange sweep)
+# --------------------------------------------------------------------------- #
+def save_scout(conn: sqlite3.Connection, snapshot: Dict[str, Any]) -> None:
+    conn.execute(
+        "INSERT INTO scout_snapshot (id, snapshot, created_ms) VALUES (1, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET snapshot=excluded.snapshot, created_ms=excluded.created_ms",
+        # allow_nan=False: a NaN must fail loudly HERE, not 500 the page later
+        # (build.py and /api/scout both re-serialize with allow_nan=False).
+        (json.dumps(snapshot, allow_nan=False), int(time.time() * 1000)),
+    )
+    conn.commit()
+
+
+def load_scout(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+    row = conn.execute("SELECT snapshot FROM scout_snapshot WHERE id=1").fetchone()
+    if row is None or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except (ValueError, TypeError):
+        return None
 
 
 # --------------------------------------------------------------------------- #
